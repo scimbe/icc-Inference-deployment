@@ -86,7 +86,7 @@ fi
 cat >> "$TMP_FILE" << EOF
       containers:
       - name: tgi
-        image: ghcr.io/huggingface/text-generation-inference:1.2.0
+        image: ghcr.io/huggingface/text-generation-inference:latest
         imagePullPolicy: IfNotPresent
         command: ["text-generation-launcher"]
         args:
