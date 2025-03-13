@@ -46,9 +46,8 @@ else
 fi
 
 # vLLM-Command-Argumente
-# Hier wird das command und args komplett neu gestaltet - die vLLM-Container haben ein Entrypoint-Skript,
-# das die Argumente erwartet, nicht den Python-Befehl selbst
-VLLM_COMMAND="[\"--model\", \"huggingface/${MODEL_NAME}\""
+# WICHTIG: Kein "huggingface/" Präfix vor dem Modellnamen, da dies bereits implizit ist
+VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
