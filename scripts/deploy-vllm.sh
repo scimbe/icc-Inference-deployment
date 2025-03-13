@@ -24,39 +24,6 @@ if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
     done
 fi
 
-# CUDA-Test-Skript mit escape-Sequenzen für YAML
-CUDA_TEST_SCRIPT="import torch
-import sys
-import os
-
-print('=== CUDA Verfügbarkeitstest ===')
-print(f'PyTorch Version: {torch.__version__}')
-print(f'CUDA verfügbar: {torch.cuda.is_available()}')
-
-if torch.cuda.is_available():
-    print(f'CUDA Version: {torch.version.cuda}')
-    print(f'Anzahl GPUs: {torch.cuda.device_count()}')
-    for i in range(torch.cuda.device_count()):
-        print(f'GPU {i}: {torch.cuda.get_device_name(i)}')
-    
-    # Test der GPU-Speicherzuweisung
-    try:
-        # 10 MB Tensor auf GPU erstellen
-        tensor = torch.rand(10 * 1024 * 1024 // 4, device='cuda')
-        print(f'Konnte erfolgreich Tensor mit {tensor.numel() * 4 / 1024 / 1024:.2f} MB auf GPU allozieren')
-        del tensor
-    except Exception as e:
-        print(f'Fehler bei GPU-Speicherallokation: {e}')
-else:
-    print('WARNUNG: CUDA ist nicht verfügbar!')
-    print('Umgebungsvariablen:')
-    for k, v in os.environ.items():
-        if 'CUDA' in k:
-            print(f'{k}: {v}')
-    sys.exit(1)
-
-print('CUDA-Test erfolgreich abgeschlossen.')"
-
 # Erstelle temporäre Datei
 TMP_FILE=$(mktemp)
 
@@ -82,9 +49,6 @@ spec:
       containers:
       - name: vllm
         image: vllm/vllm-openai:latest
-        command: ["/bin/bash", "-c"]
-        args:
-        - python -m vllm.entrypoints.openai.api_server --model ${MODEL_NAME} --host 0.0.0.0 --port 3333 --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} --max-model-len ${MAX_MODEL_LEN} --dtype half
         ports:
         - containerPort: 3333
           protocol: TCP
@@ -117,7 +81,7 @@ spec:
   - name: http
     port: 3333
     protocol: TCP
-    targetPort: 3333
+    targetPort: 8000
   selector:
     service: vllm
   type: ClusterIP
@@ -141,9 +105,8 @@ kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --time
 echo "vLLM Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
 echo
-echo "HINWEIS: Diese Version verwendet eine minimale Konfiguration ohne CUDA-Test."
-echo "HINWEIS: vLLM nutzt Port 3333 statt des standardmäßigen Ports 8000."
-echo "HINWEIS: Mixed Precision (half) ist aktiviert, um Speicherverbrauch zu reduzieren."
+echo "HINWEIS: Diese Version verwendet die Standard-Entrypoints des vLLM-Images."
+echo "HINWEIS: vLLM Port 8000 wird auf Service-Port 3333 gemappt."
 echo "HINWEIS: vLLM muss das Modell jetzt herunterladen und in den GPU-Speicher laden."
 echo "Dieser Vorgang kann je nach Modellgröße einige Minuten bis Stunden dauern."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
