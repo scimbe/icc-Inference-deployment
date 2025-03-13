@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Skript zum Deployment von vLLM mit GPU-Unterstützung ohne ZMQ
-# Fügt einen CUDA-Test vor dem Modellstart hinzu
 # Verwendet Port 3333 statt 8000
 # Aktiviert Mixed Precision (half) für optimierten Speicherverbrauch
 set -e
@@ -21,8 +20,9 @@ fi
 # Erstelle temporäre YAML-Datei für das Deployment
 TMP_FILE=$(mktemp)
 
-# CUDA-Test-Skript
-CUDA_TEST_SCRIPT="import torch
+# Variablen für Multiline-Strings
+CUDA_TEST_SCRIPT=$(cat << 'EOF'
+import torch
 import sys
 import os
 
@@ -52,27 +52,41 @@ else:
             print(f'{k}: {v}')
     sys.exit(1)
 
-print('CUDA-Test erfolgreich abgeschlossen.')"
+print('CUDA-Test erfolgreich abgeschlossen.')
+EOF
+)
 
-# GPU-Konfiguration vorbereiten
-if [ "$USE_GPU" == "true" ]; then
-    # GPU-Umgebungsvariablen für optimale Performance
-    CUDA_DEVICES="0"
-    if [ "$GPU_COUNT" -gt 1 ]; then
-        # Für Multi-GPU: CUDA_VISIBLE_DEVICES mit entsprechender Anzahl
-        for ((i=1; i<GPU_COUNT; i++)); do
-            CUDA_DEVICES="$CUDA_DEVICES,$i"
-        done
-    fi
+# CUDA_DEVICES vorbereiten
+CUDA_DEVICES="0"
+if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
+    for ((i=1; i<GPU_COUNT; i++)); do
+        CUDA_DEVICES="${CUDA_DEVICES},${i}"
+    done
 fi
 
-# Erstelle die YAML-Datei ohne Expansion in umgebungsvariablen-sensitiven Teilen
-cat << 'EOT' > "$TMP_FILE"
+# VLLM Command-Argumente
+VLLM_ARGS="python -m vllm.entrypoints.openai.api_server --model ${MODEL_NAME} --host 0.0.0.0 --port 3333 --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} --max-model-len ${MAX_MODEL_LEN} --dtype half"
+
+if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
+    VLLM_ARGS="${VLLM_ARGS} --tensor-parallel-size ${GPU_COUNT}"
+fi
+
+if [ -n "$QUANTIZATION" ]; then
+    VLLM_ARGS="${VLLM_ARGS} --quantization ${QUANTIZATION}"
+fi
+
+if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ]; then
+    VLLM_ARGS="${VLLM_ARGS} --disable-custom-all-reduce"
+fi
+
+# Erstelle YAML für vLLM Deployment
+cat > "$TMP_FILE" << EOF
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: VLLM_DEPLOYMENT_NAME_PLACEHOLDER
-  namespace: NAMESPACE_PLACEHOLDER
+  name: ${VLLM_DEPLOYMENT_NAME}
+  namespace: ${NAMESPACE}
   labels:
     service: vllm
 spec:
@@ -84,205 +98,164 @@ spec:
     metadata:
       labels:
         service: vllm
-EOT
+    spec:
+EOF
 
-# GPU Tolerationen hinzufügen
+# GPU Tolerationen hinzufügen wenn GPU aktiviert
 if [ "$USE_GPU" == "true" ]; then
-    cat << EOT >> "$TMP_FILE"
-    spec:
+    cat >> "$TMP_FILE" << EOF
       tolerations:
-        - key: "$GPU_TYPE"
-          operator: "Exists"
-          effect: "NoSchedule"
-EOT
-else
-    cat << EOT >> "$TMP_FILE"
-    spec:
-EOT
+      - key: "${GPU_TYPE}"
+        operator: "Exists"
+        effect: "NoSchedule"
+EOF
 fi
 
-# Init-Container mit CUDA-Test
-cat << EOT >> "$TMP_FILE"
+# InitContainer für CUDA-Test
+cat >> "$TMP_FILE" << EOF
       initContainers:
-        - name: cuda-test
-          image: vllm/vllm-openai:latest
-          command: ["python", "-c"]
-          args:
-            - |
-              $CUDA_TEST_SCRIPT
-          env:
-EOT
+      - name: cuda-test
+        image: vllm/vllm-openai:latest
+        command: ["python", "-c"]
+        args:
+        - |
+${CUDA_TEST_SCRIPT}
+        env:
+EOF
 
 # GPU-Umgebungsvariablen für initContainer
 if [ "$USE_GPU" == "true" ]; then
-    cat << EOT >> "$TMP_FILE"
-            - name: PATH
-              value: /usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            - name: LD_LIBRARY_PATH
-              value: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
-            - name: NVIDIA_DRIVER_CAPABILITIES
-              value: compute,utility
-            - name: CUDA_VISIBLE_DEVICES
-              value: "$CUDA_DEVICES"
-            - name: VLLM_LOGGING_LEVEL
-              value: "INFO"
-            - name: NCCL_SOCKET_IFNAME
-              value: "eth0"
-            - name: NCCL_DEBUG
-              value: "INFO"
-EOT
+    cat >> "$TMP_FILE" << EOF
+        - name: PATH
+          value: /usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: LD_LIBRARY_PATH
+          value: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: compute,utility
+        - name: CUDA_VISIBLE_DEVICES
+          value: "${CUDA_DEVICES}"
+        - name: VLLM_LOGGING_LEVEL
+          value: "INFO"
+        - name: NCCL_SOCKET_IFNAME
+          value: "eth0"
+        - name: NCCL_DEBUG
+          value: "INFO"
+EOF
 fi
 
 # Init-Container Ressourcen
-cat << EOT >> "$TMP_FILE"
-          resources:
-            limits:
-              memory: "2Gi"
-              cpu: "1"
-EOT
+cat >> "$TMP_FILE" << EOF
+        resources:
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+EOF
 
-# GPU-Ressourcen für initContainer
+# GPU-Ressourcen für initContainer wenn GPU aktiviert
 if [ "$USE_GPU" == "true" ]; then
-    cat << EOT >> "$TMP_FILE"
-              nvidia.com/gpu: $GPU_COUNT
-EOT
+    cat >> "$TMP_FILE" << EOF
+            nvidia.com/gpu: ${GPU_COUNT}
+EOF
 fi
 
 # Hauptcontainer
-cat << EOT >> "$TMP_FILE"
+cat >> "$TMP_FILE" << EOF
       containers:
-        - image: vllm/vllm-openai:latest
-          name: vllm
-          command: ["/bin/bash", "-c"]
-          args:
-            - >
-              python -m vllm.entrypoints.openai.api_server
-              --model $MODEL_NAME
-              --host 0.0.0.0
-              --port 3333
-              --gpu-memory-utilization $GPU_MEMORY_UTILIZATION
-              --max-model-len $MAX_MODEL_LEN
-              --dtype half
-EOT
-
-# Multi-GPU-Parameter
-if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
-    cat << EOT >> "$TMP_FILE"
-              --tensor-parallel-size $GPU_COUNT
-EOT
-fi
-
-# Quantisierungs-Parameter
-if [ -n "$QUANTIZATION" ]; then
-    cat << EOT >> "$TMP_FILE"
-              --quantization $QUANTIZATION
-EOT
-fi
-
-# Single-GPU Parameter
-if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ]; then
-    cat << EOT >> "$TMP_FILE"
-              --disable-custom-all-reduce
-EOT
-fi
-
-# Umgebungsvariablen für Hauptcontainer
-cat << EOT >> "$TMP_FILE"
-          env:
-EOT
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        command: ["/bin/bash", "-c"]
+        args:
+        - >
+          ${VLLM_ARGS}
+        env:
+EOF
 
 # GPU-Umgebungsvariablen für Hauptcontainer
 if [ "$USE_GPU" == "true" ]; then
-    cat << EOT >> "$TMP_FILE"
-            - name: PATH
-              value: /usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            - name: LD_LIBRARY_PATH
-              value: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
-            - name: NVIDIA_DRIVER_CAPABILITIES
-              value: compute,utility
-            - name: CUDA_VISIBLE_DEVICES
-              value: "$CUDA_DEVICES"
-            - name: VLLM_LOGGING_LEVEL
-              value: "INFO"
-            - name: NCCL_SOCKET_IFNAME
-              value: "eth0"
-            - name: NCCL_DEBUG
-              value: "INFO"
-EOT
+    cat >> "$TMP_FILE" << EOF
+        - name: PATH
+          value: /usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: LD_LIBRARY_PATH
+          value: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: compute,utility
+        - name: CUDA_VISIBLE_DEVICES
+          value: "${CUDA_DEVICES}"
+        - name: VLLM_LOGGING_LEVEL
+          value: "INFO"
+        - name: NCCL_SOCKET_IFNAME
+          value: "eth0"
+        - name: NCCL_DEBUG
+          value: "INFO"
+EOF
 fi
 
 # API Key für vLLM
 if [ -n "$VLLM_API_KEY" ]; then
-    cat << EOT >> "$TMP_FILE"
-            - name: VLLM_API_KEY
-              value: "$VLLM_API_KEY"
-EOT
+    cat >> "$TMP_FILE" << EOF
+        - name: VLLM_API_KEY
+          value: "${VLLM_API_KEY}"
+EOF
 fi
 
 # HuggingFace Token
 if [ -n "$HUGGINGFACE_TOKEN" ]; then
-    cat << EOT >> "$TMP_FILE"
-            - name: HUGGING_FACE_HUB_TOKEN
-              value: "$HUGGINGFACE_TOKEN"
-EOT
+    cat >> "$TMP_FILE" << EOF
+        - name: HUGGING_FACE_HUB_TOKEN
+          value: "${HUGGINGFACE_TOKEN}"
+EOF
 fi
 
-# Rest des Pod-Templates
-cat << EOT >> "$TMP_FILE"
-          ports:
-            - containerPort: 3333
-              protocol: TCP
-          resources:
-            limits:
-              memory: "$MEMORY_LIMIT"
-              cpu: "$CPU_LIMIT"
-EOT
+# Rest des Hauptcontainers
+cat >> "$TMP_FILE" << EOF
+        ports:
+        - containerPort: 3333
+          protocol: TCP
+        resources:
+          limits:
+            memory: "${MEMORY_LIMIT}"
+            cpu: "${CPU_LIMIT}"
+EOF
 
-# GPU-Ressourcen für Hauptcontainer
+# GPU-Ressourcen für Hauptcontainer wenn GPU aktiviert
 if [ "$USE_GPU" == "true" ]; then
-    cat << EOT >> "$TMP_FILE"
-              nvidia.com/gpu: $GPU_COUNT
-EOT
+    cat >> "$TMP_FILE" << EOF
+            nvidia.com/gpu: ${GPU_COUNT}
+EOF
 fi
 
 # Volumes und Volume Mounts
-cat << 'EOT' >> "$TMP_FILE"
-          volumeMounts:
-            - name: model-cache
-              mountPath: /root/.cache/huggingface
-            - name: dshm
-              mountPath: /dev/shm
-      volumes:
+cat >> "$TMP_FILE" << EOF
+        volumeMounts:
         - name: model-cache
-          emptyDir: {}
+          mountPath: /root/.cache/huggingface
         - name: dshm
-          emptyDir:
-            medium: Memory
-            sizeLimit: 8Gi
+          mountPath: /dev/shm
+      volumes:
+      - name: model-cache
+        emptyDir: {}
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: VLLM_SERVICE_NAME_PLACEHOLDER
-  namespace: NAMESPACE_PLACEHOLDER
+  name: ${VLLM_SERVICE_NAME}
+  namespace: ${NAMESPACE}
   labels:
     service: vllm
 spec:
   ports:
-    - name: http
-      port: 3333
-      protocol: TCP
-      targetPort: 3333
+  - name: http
+    port: 3333
+    protocol: TCP
+    targetPort: 3333
   selector:
     service: vllm
   type: ClusterIP
-EOT
-
-# Ersetze Platzhalter mit tatsächlichen Werten
-sed -i.bak "s/VLLM_DEPLOYMENT_NAME_PLACEHOLDER/$VLLM_DEPLOYMENT_NAME/g" "$TMP_FILE"
-sed -i.bak "s/VLLM_SERVICE_NAME_PLACEHOLDER/$VLLM_SERVICE_NAME/g" "$TMP_FILE"
-sed -i.bak "s/NAMESPACE_PLACEHOLDER/$NAMESPACE/g" "$TMP_FILE"
-rm -f "$TMP_FILE.bak"
+EOF
 
 # Anwenden der Konfiguration
 echo "Deploying vLLM to namespace $NAMESPACE mit CUDA-Test..."
