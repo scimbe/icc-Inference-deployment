@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Deployment von vLLM mit GPU-Unterstützung und Standalone-Modus
+# Skript zum Deployment von vLLM mit GPU-Unterstützung und direktem API-Server-Modus
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -52,11 +52,8 @@ else
 fi
 
 # vLLM-Command-Argumente 
-# Statt OpenAI API Server verwenden wir das direkte vLLM-Modul
-VLLM_COMMAND="[\"python\", \"-m\", \"vllm.entrypoints.api_server\""
-
-# Modell-Spezifikation
-VLLM_COMMAND+=", \"--model\", \"${MODEL_NAME}\""
+# Das vLLM-Container-Image verwendet standardmäßig einen Entrypoint, der die API startet
+VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
@@ -76,6 +73,9 @@ VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
 
 # Distributed Executor setzen - Wichtig für Standalone-Modus ohne ZMQ
 VLLM_COMMAND+=", \"--distributed-executor-backend\", \"uni\""
+
+# Asynchrone Ausgabeverarbeitung deaktivieren, um ZMQ zu vermeiden
+VLLM_COMMAND+=", \"--disable-async-output-proc\""
 
 if [ -n "$DTYPE" ]; then
     VLLM_COMMAND+=", \"--dtype\", \"${DTYPE}\""
@@ -106,6 +106,15 @@ else
     HF_TOKEN_ENV=""
 fi
 
+# Wichtige Umgebungsvariablen, um ZMQ und asynchrone Verarbeitung zu deaktivieren
+ZMQ_ENV="
+            - name: VLLM_USE_RAY
+              value: \"false\"
+            - name: DISABLE_UVLOOP
+              value: \"true\"
+            - name: DISABLE_ASYNC_PROCESSING
+              value: \"true\""
+
 # Erstelle YAML für vLLM Deployment
 cat << EOF > "$TMP_FILE"
 apiVersion: apps/v1
@@ -129,7 +138,7 @@ spec:
         - image: vllm/vllm-openai:latest
           name: vllm
           args: $VLLM_COMMAND
-          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
+          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV$ZMQ_ENV
           ports:
             - containerPort: 8000
               protocol: TCP
