@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Skalieren der GPU-Ressourcen für vLLM-Deployment
+# Skript zum Skalieren der GPU-Ressourcen für TGI-Deployment
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -19,14 +19,14 @@ fi
 show_help() {
     echo "Verwendung: $0 [OPTIONEN]"
     echo
-    echo "Skript zum Skalieren der GPU-Ressourcen für vLLM-Deployment."
+    echo "Skript zum Skalieren der GPU-Ressourcen für TGI-Deployment."
     echo
     echo "Optionen:"
     echo "  -c, --count NUM    Anzahl der GPUs (1-4, abhängig von Verfügbarkeit)"
     echo "  -h, --help         Diese Hilfe anzeigen"
     echo
     echo "Beispiel:"
-    echo "  $0 --count 2       vLLM auf 2 GPUs skalieren"
+    echo "  $0 --count 2       TGI auf 2 GPUs skalieren"
     exit 0
 }
 
@@ -61,19 +61,19 @@ if ! [[ "$GPU_COUNT_NEW" =~ ^[1-4]$ ]]; then
     exit 1
 fi
 
-# Überprüfe ob das vLLM Deployment existiert
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden."
+# Überprüfe ob das TGI Deployment existiert
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
 
 # Aktuelle GPU-Anzahl abrufen
-CURRENT_GPU_COUNT=$(kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.nvidia\.com/gpu}')
+CURRENT_GPU_COUNT=$(kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].resources.limits.nvidia\.com/gpu}')
 
-echo "=== GPU-Skalierung für vLLM ==="
+echo "=== GPU-Skalierung für TGI ==="
 echo "Namespace: $NAMESPACE"
-echo "Deployment: $VLLM_DEPLOYMENT_NAME"
+echo "Deployment: $TGI_DEPLOYMENT_NAME"
 echo "Aktuelle GPU-Anzahl: $CURRENT_GPU_COUNT"
 echo "Neue GPU-Anzahl: $GPU_COUNT_NEW"
 
@@ -85,7 +85,7 @@ if [[ "$GPU_COUNT_NEW" == "$CURRENT_GPU_COUNT" ]]; then
 fi
 
 echo
-read -p "Möchten Sie die Skalierung durchführen? Dies wird einen Neustart des vLLM-Pods verursachen. (j/N) " -n 1 -r
+read -p "Möchten Sie die Skalierung durchführen? Dies wird einen Neustart des TGI-Pods verursachen. (j/N) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Jj]$ ]]; then
     echo "Abbruch"
@@ -94,7 +94,6 @@ fi
 
 # Temporäre Patchdateien erstellen
 TMP_PATCH_GPU=$(mktemp)
-TMP_PATCH_ARGS=$(mktemp)
 
 # Patch für GPU-Ressourcen
 cat << EOF > "$TMP_PATCH_GPU"
@@ -107,85 +106,96 @@ cat << EOF > "$TMP_PATCH_GPU"
 ]
 EOF
 
-# Extrahiere aktuelle args
-CURRENT_ARGS=$(kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].args}')
+# CUDA_DEVICES aktualisieren
+CUDA_DEVICES="0"
+if [ "$GPU_COUNT_NEW" -gt 1 ]; then
+    for ((i=1; i<GPU_COUNT_NEW; i++)); do
+        CUDA_DEVICES="${CUDA_DEVICES},$i"
+    done
+fi
 
-# Identifiziere den aktuellen tensor-parallel-size Wert in den args
-CURRENT_TP_ARG=$(echo "$CURRENT_ARGS" | grep -o -- "--tensor-parallel-size [0-9]" || echo "")
-
-# Wenn ein tensor-parallel-size gefunden wurde, ersetze ihn
-if [[ -n "$CURRENT_TP_ARG" ]]; then
-    # Extrahiere den Wert
-    CURRENT_TP_SIZE=${CURRENT_TP_ARG##* }
-    
-    if [[ "$CURRENT_TP_SIZE" != "$GPU_COUNT_NEW" ]]; then
-        echo "Aktualisiere tensor-parallel-size von $CURRENT_TP_SIZE auf $GPU_COUNT_NEW..."
-        
-        # Erstelle einen JSON-Patch, der den alten arg durch einen neuen ersetzt
-        cat << EOF > "$TMP_PATCH_ARGS"
+# Patch für CUDA_DEVICES
+TMP_PATCH_CUDA=$(mktemp)
+cat << EOF > "$TMP_PATCH_CUDA"
 [
   {
     "op": "replace",
-    "path": "/spec/template/spec/containers/0]/args",
-    "value": [
-      $(kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].args}' | sed "s/--tensor-parallel-size $CURRENT_TP_SIZE/--tensor-parallel-size $GPU_COUNT_NEW/g")
-    ]
+    "path": "/spec/template/spec/containers/0/env",
+    "value": $(kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].env}' | sed "s/CUDA_VISIBLE_DEVICES\":[^}]*}/CUDA_VISIBLE_DEVICES\": \"$CUDA_DEVICES\"}/")
   }
 ]
 EOF
-    else
-        echo "tensor-parallel-size ist bereits auf $GPU_COUNT_NEW gesetzt."
-    fi
-else
-    # Wenn kein tensor-parallel-size gefunden wurde, füge ihn hinzu (wenn GPU_COUNT_NEW > 1)
-    if [[ "$GPU_COUNT_NEW" -gt 1 ]]; then
-        echo "Füge tensor-parallel-size=$GPU_COUNT_NEW zu den args hinzu..."
-        
-        # Hole aktuelle args als Array
-        ARGS_ARRAY=$(kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].args}')
-        
-        # Füge den neuen arg hinzu (komplexer Fall, der Beachtung des JSON-Formats erfordert)
-        # In diesem Fall wäre es einfacher, das Deployment neu zu starten, aber wir implementieren es hier der Vollständigkeit halber
-        echo "Diese Operation erfordert einen vollständigen Neustart des Deployments."
-        echo "Es wird empfohlen, das Deployment mit dem aktualisierten Wert in config.sh neu zu starten."
-        
-        read -p "Möchten Sie stattdessen das Deployment neu starten? (j/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Jj]$ ]]; then
-            # Aktualisiere die GPU_COUNT in der config.sh
-            sed -i "s/^export GPU_COUNT=.*/export GPU_COUNT=$GPU_COUNT_NEW/" "$ROOT_DIR/configs/config.sh"
-            
-            echo "GPU_COUNT in config.sh auf $GPU_COUNT_NEW aktualisiert."
-            echo "Starte Deployment neu..."
-            
-            # Deployment neu starten
-            bash "$ROOT_DIR/scripts/deploy-vllm.sh"
-            exit 0
+
+# Sharded-Modus aktivieren oder deaktivieren
+TMP_PATCH_SHARDED=$(mktemp)
+
+# Prüfe, ob der Sharded-Flag in den aktuellen Args vorhanden ist
+CURRENT_ARGS=$(kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].args}')
+HAS_SHARDED=$(echo "$CURRENT_ARGS" | grep -q -- "--sharded=true" && echo "true" || echo "false")
+
+if [ "$GPU_COUNT_NEW" -gt 1 ] && [ "$HAS_SHARDED" = "false" ]; then
+    # Füge sharded=true hinzu, wenn mehrere GPUs und noch nicht gesetzt
+    cat << EOF > "$TMP_PATCH_SHARDED"
+[
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/args/-",
+    "value": "--sharded=true"
+  }
+]
+EOF
+    echo "Aktiviere Sharded-Modus für Multi-GPU-Konfiguration..."
+    kubectl -n "$NAMESPACE" patch deployment "$TGI_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_SHARDED"
+elif [ "$GPU_COUNT_NEW" -eq 1 ] && [ "$HAS_SHARDED" = "true" ]; then
+    # Entferne sharded=true, wenn nur eine GPU und bereits gesetzt
+    # Finde den Index des Sharded-Args
+    ARGS=$(kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].args}')
+    SHARDED_INDEX=""
+    
+    # Konvertiere das JSON-Array in eine Bash-Array
+    eval "ARGS_ARRAY=($ARGS)"
+    
+    # Finde den Index von "--sharded=true"
+    for i in "${!ARGS_ARRAY[@]}"; do
+        if [[ "${ARGS_ARRAY[$i]}" == "--sharded=true" ]]; then
+            SHARDED_INDEX=$i
+            break
         fi
+    done
+    
+    if [ -n "$SHARDED_INDEX" ]; then
+        cat << EOF > "$TMP_PATCH_SHARDED"
+[
+  {
+    "op": "remove",
+    "path": "/spec/template/spec/containers/0/args/$SHARDED_INDEX"
+  }
+]
+EOF
+        echo "Deaktiviere Sharded-Modus für Single-GPU-Konfiguration..."
+        kubectl -n "$NAMESPACE" patch deployment "$TGI_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_SHARDED"
     fi
 fi
 
 # Wende GPU-Resource-Patch an
 echo "Wende GPU-Resource-Patch an..."
-kubectl -n "$NAMESPACE" patch deployment "$VLLM_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_GPU"
+kubectl -n "$NAMESPACE" patch deployment "$TGI_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_GPU"
 
-# Wenn tensor-parallel-size-Patch existiert, wende ihn an
-if [[ -s "$TMP_PATCH_ARGS" ]]; then
-    echo "Wende tensor-parallel-size-Patch an..."
-    kubectl -n "$NAMESPACE" patch deployment "$VLLM_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_ARGS"
-fi
+# Wende CUDA_DEVICES-Patch an
+echo "Aktualisiere CUDA_VISIBLE_DEVICES..."
+kubectl -n "$NAMESPACE" patch deployment "$TGI_DEPLOYMENT_NAME" --type=json --patch-file="$TMP_PATCH_CUDA"
 
 # Aufräumen
-rm "$TMP_PATCH_GPU" "$TMP_PATCH_ARGS"
+rm "$TMP_PATCH_GPU" "$TMP_PATCH_CUDA" "$TMP_PATCH_SHARDED"
 
 # Warte auf das Rollout
 echo "Warte auf Rollout der Änderungen..."
-kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --timeout=180s
+kubectl -n "$NAMESPACE" rollout status deployment/"$TGI_DEPLOYMENT_NAME" --timeout=180s
 
 # Aktualisierte Konfiguration anzeigen
 echo "GPU-Skalierung abgeschlossen."
 echo "Neue Konfiguration:"
-kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].resources.limits}'
+kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" -o jsonpath='{.spec.template.spec.containers[0].resources.limits}'
 echo
 
 # Hinweis zur Prüfung der GPU-Funktionalität
