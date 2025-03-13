@@ -46,7 +46,6 @@ else
 fi
 
 # vLLM-Command-Argumente
-# WICHTIG: Kein "huggingface/" Präfix vor dem Modellnamen, da dies bereits implizit ist
 VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
@@ -80,6 +79,15 @@ else
     VLLM_API_ENV=""
 fi
 
+# HuggingFace Token für geschützte Modelle
+if [ -n "$HUGGINGFACE_TOKEN" ]; then
+    HF_TOKEN_ENV="
+            - name: HUGGING_FACE_HUB_TOKEN
+              value: \"${HUGGINGFACE_TOKEN}\""
+else
+    HF_TOKEN_ENV=""
+fi
+
 # Erstelle YAML für vLLM Deployment
 cat << EOF > "$TMP_FILE"
 apiVersion: apps/v1
@@ -103,7 +111,7 @@ spec:
         - image: vllm/vllm-openai:latest
           name: vllm
           args: $VLLM_COMMAND
-          env:$GPU_ENV$VLLM_API_ENV
+          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
           ports:
             - containerPort: 8000
               protocol: TCP

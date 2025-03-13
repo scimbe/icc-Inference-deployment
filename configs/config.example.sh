@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Beispielkonfigurationsdatei für das ICC vLLM Deployment
+# Kopieren Sie diese Datei nach config.sh und passen Sie die Werte an Ihre Umgebung an
+
 # ICC Namespace (wird automatisch erstellt, normalerweise ist es Ihre w-Kennung + "-default")
 # Beispiel: Wenn Ihr Login infwaa123 ist, dann ist Ihr Namespace waa123-default
 export NAMESPACE="wXYZ123-default"  # Ersetzen Sie dies mit Ihrem Namespace
@@ -16,7 +19,28 @@ export GPU_TYPE="gpu-tesla-v100"  # Oder "gpu-tesla-v100s" je nach Verfügbarkei
 export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, kann bis zu 4 sein)
 
 # vLLM-Konfiguration
-export MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"  # HuggingFace-Modellpfad
+# WICHTIG: Falls Sie das Llama-2-Modell verwenden möchten, benötigen Sie ein HuggingFace-Token!
+# Andernfalls wählen Sie ein frei zugängliches Modell wie unten vorgeschlagen
+
+# Beispiele für frei zugängliche Modelle:
+# export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  # Frei zugängliches Modell
+# export MODEL_NAME="microsoft/phi-2"                    # Kleineres Modell (2.7B)
+# export MODEL_NAME="google/gemma-2b-it"                 # Sehr kleines Modell
+# export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0" # Sehr kleines Modell
+
+# Gated Modelle (benötigen ein HuggingFace-Token):
+# export MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"
+# export MODEL_NAME="meta-llama/Llama-2-13b-chat-hf"
+
+# Standardmäßig verwenden wir Mistral 7B, da es kein Token erfordert
+export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  
+
+# Hugging Face Token für den Zugriff auf geschützte Modelle
+# Wenn Sie Llama-2 oder andere gated Modelle verwenden möchten, geben Sie hier Ihr Token an
+# Registrieren Sie sich auf huggingface.co, erstellen Sie ein Token und akzeptieren Sie die Nutzungsbedingungen
+# des Modells auf der Modellseite
+export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated Models
+
 export QUANTIZATION=""  # Optional: "awq" oder "gptq" für quantisierte Modelle
 export GPU_MEMORY_UTILIZATION=0.9  # Anteil des GPU-Speichers, der genutzt werden soll (0.0-1.0)
 export MAX_MODEL_LEN=8192  # Maximale Kontext-Länge
