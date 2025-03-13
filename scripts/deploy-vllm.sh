@@ -45,27 +45,36 @@ else
     GPU_ENV=""
 fi
 
-# vLLM-spezifische Parameter vorbereiten
-VLLM_ARGS="huggingface/${MODEL_NAME}"
+# vLLM-spezifische Parameter vorbereiten - als Array für korrekte Übergabe
+VLLM_ARGS=()
+VLLM_ARGS+=("--model" "huggingface/${MODEL_NAME}")
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
-    VLLM_ARGS="${VLLM_ARGS} --quantization ${QUANTIZATION}"
+    VLLM_ARGS+=("--quantization" "${QUANTIZATION}")
 fi
 
 # Tensor Parallel Size (Multi-GPU)
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
-    VLLM_ARGS="${VLLM_ARGS} --tensor-parallel-size ${GPU_COUNT}"
+    VLLM_ARGS+=("--tensor-parallel-size" "${GPU_COUNT}")
 fi
 
 # Weitere vLLM-Parameter
-VLLM_ARGS="${VLLM_ARGS} --host 0.0.0.0 --port 8000"
-VLLM_ARGS="${VLLM_ARGS} --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION}"
-VLLM_ARGS="${VLLM_ARGS} --max-model-len ${MAX_MODEL_LEN}"
+VLLM_ARGS+=("--host" "0.0.0.0")
+VLLM_ARGS+=("--port" "8000")
+VLLM_ARGS+=("--gpu-memory-utilization" "${GPU_MEMORY_UTILIZATION}")
+VLLM_ARGS+=("--max-model-len" "${MAX_MODEL_LEN}")
 
 if [ -n "$DTYPE" ]; then
-    VLLM_ARGS="${VLLM_ARGS} --dtype ${DTYPE}"
+    VLLM_ARGS+=("--dtype" "${DTYPE}")
 fi
+
+# Erstelle ein JSON-Array aus den VLLM_ARGS für die YAML-Vorlage
+VLLM_ARGS_JSON="[\"serve\""
+for arg in "${VLLM_ARGS[@]}"; do
+    VLLM_ARGS_JSON+=", \"$arg\""
+done
+VLLM_ARGS_JSON+="]"
 
 # API Key für vLLM
 if [ -n "$VLLM_API_KEY" ]; then
@@ -98,9 +107,7 @@ spec:
       containers:
         - image: vllm/vllm-openai:latest
           name: vllm
-          args:
-            - "serve"
-            - $VLLM_ARGS
+          args: $VLLM_ARGS_JSON
           env:$GPU_ENV$VLLM_API_ENV
           ports:
             - containerPort: 8000
