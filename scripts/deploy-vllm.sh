@@ -51,7 +51,7 @@ else
     GPU_ENV=""
 fi
 
-# vLLM-Command-Argumente ohne ZMQ/Ray
+# vLLM-Command-Argumente
 VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
@@ -69,10 +69,7 @@ VLLM_COMMAND+=", \"--host\", \"0.0.0.0\""
 VLLM_COMMAND+=", \"--port\", \"8000\""
 VLLM_COMMAND+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
 VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
-
-# In neueren vLLM-Versionen wird standardmäßig async-engine verwendet
-VLLM_COMMAND+=", \"--engine-use-ray\", \"false\""
-VLLM_COMMAND+=", \"--disable-async-engine\", \"true\""
+VLLM_COMMAND+=", \"--distributed-executor-backend\", \"uni\""
 
 if [ -n "$DTYPE" ]; then
     VLLM_COMMAND+=", \"--dtype\", \"${DTYPE}\""
@@ -127,12 +124,6 @@ spec:
           name: vllm
           args: $VLLM_COMMAND
           env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
-            - name: VLLM_USE_ASYNC_ENGINE
-              value: "false"
-            - name: VLLM_WORKER_USE_RAY
-              value: "false"
-            - name: CUDA_VISIBLE_DEVICES
-              value: "0"
           ports:
             - containerPort: 8000
               protocol: TCP
@@ -189,7 +180,7 @@ kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --time
 echo "vLLM Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:8000"
 echo
-echo "HINWEIS: vLLM wurde mit deaktivierter async-engine und ohne Ray/ZMQ konfiguriert."
+echo "HINWEIS: vLLM nutzt den 'uni' Executor-Backend ohne Ray/ZMQ."
 echo "HINWEIS: vLLM muss das Modell jetzt herunterladen und in den GPU-Speicher laden."
 echo "Dieser Vorgang kann je nach Modellgröße einige Minuten bis Stunden dauern."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
