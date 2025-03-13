@@ -148,7 +148,7 @@ spec:
               memory: "2Gi"
               cpu: "1"$GPU_RESOURCES
       containers:
-        - image: vllm/vllm-openai:v0.2.5
+        - image: vllm/vllm-openai:latest
           name: vllm
           command: ["/bin/bash", "-c"]
           args:
@@ -222,7 +222,6 @@ echo "vLLM Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
 echo
 echo "HINWEIS: Ein CUDA-Test wurde als Init-Container hinzugefügt."
-echo "HINWEIS: vLLM v0.2.5 wird verwendet, die keine ZMQ-Abhängigkeit hat."
 echo "HINWEIS: vLLM nutzt Port 3333 statt des standardmäßigen Ports 8000."
 echo "HINWEIS: CUDA_VISIBLE_DEVICES ist auf '$CUDA_DEVICES' gesetzt."
 echo "HINWEIS: Mixed Precision (half) ist aktiviert, um Speicherverbrauch zu reduzieren."
