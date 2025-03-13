@@ -38,7 +38,13 @@ if [ "$USE_GPU" == "true" ]; then
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
             - name: PYTORCH_CUDA_ALLOC_CONF
-              value: expandable_segments:True"
+              value: expandable_segments:True
+            - name: NCCL_DEBUG
+              value: \"INFO\"
+            - name: NCCL_IB_DISABLE
+              value: \"1\"
+            - name: NCCL_P2P_DISABLE
+              value: \"1\""
 else
     GPU_TOLERATIONS=""
     GPU_RESOURCES=""
@@ -66,6 +72,11 @@ VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
 
 if [ -n "$DTYPE" ]; then
     VLLM_COMMAND+=", \"--dtype\", \"${DTYPE}\""
+fi
+
+# Deaktiviere Multi-GPU, falls auf 1 reduziert
+if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ]; then
+    VLLM_COMMAND+=", \"--disable-custom-all-reduce\""
 fi
 
 VLLM_COMMAND+="]"

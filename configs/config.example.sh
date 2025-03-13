@@ -16,7 +16,7 @@ export WEBUI_SERVICE_NAME="vllm-webui"
 # GPU-Konfiguration
 export USE_GPU=true  # Auf false setzen, wenn keine GPU benötigt wird
 export GPU_TYPE="gpu-tesla-v100"  # Oder "gpu-tesla-v100s" je nach Verfügbarkeit
-export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, kann bis zu 4 sein)
+export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, multi-GPU kann Probleme verursachen)
 
 # vLLM-Konfiguration
 # WICHTIG: Falls Sie das Llama-2-Modell verwenden möchten, benötigen Sie ein HuggingFace-Token!
@@ -24,9 +24,9 @@ export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, kann bis zu 4 sein)
 
 # Beispiele für frei zugängliche Modelle:
 # export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  # Frei zugängliches Modell
-# export MODEL_NAME="microsoft/phi-2"                    # Kleineres Modell (2.7B)
-# export MODEL_NAME="google/gemma-2b-it"                 # Sehr kleines Modell
-# export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0" # Sehr kleines Modell
+# export MODEL_NAME="microsoft/phi-2"                     # Kleineres Modell (2.7B)
+# export MODEL_NAME="google/gemma-2b-it"                  # Sehr kleines Modell
+# export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Sehr kleines Modell
 
 # Gated Modelle (benötigen ein HuggingFace-Token):
 # export MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"
