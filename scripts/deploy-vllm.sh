@@ -163,7 +163,8 @@ spec:
               $([ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ] && echo "--tensor-parallel-size $GPU_COUNT")
               $([ -n "$QUANTIZATION" ] && echo "--quantization $QUANTIZATION")
               $([ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ] && echo "--disable-custom-all-reduce")
-          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
+          env:
+$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
           ports:
             - containerPort: 3333
               protocol: TCP
