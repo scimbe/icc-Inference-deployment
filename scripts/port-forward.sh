@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Skript zum Starten des Port-Forwardings für vLLM und WebUI
-# Angepasst für vLLM auf Port 3333
+# Skript zum Starten des Port-Forwardings für TGI und WebUI
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -17,8 +16,8 @@ else
 fi
 
 # Überprüfe ob die Deployments existieren
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden."
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
@@ -30,9 +29,9 @@ if ! kubectl -n "$NAMESPACE" get deployment "$WEBUI_DEPLOYMENT_NAME" &> /dev/nul
 fi
 
 # Starte Port-Forwarding in separaten Prozessen
-echo "Starte Port-Forwarding für vLLM auf Port 3333..."
-kubectl -n "$NAMESPACE" port-forward svc/"$VLLM_SERVICE_NAME" 3333:3333 &
-VLLM_PID=$!
+echo "Starte Port-Forwarding für TGI auf Port 3333..."
+kubectl -n "$NAMESPACE" port-forward svc/"$TGI_SERVICE_NAME" 3333:3333 &
+TGI_PID=$!
 
 echo "Starte Port-Forwarding für WebUI auf Port 8080..."
 export KUBECTL_PORT_FORWARD_WEBSOCKETS="true"
@@ -40,14 +39,14 @@ kubectl -n "$NAMESPACE" port-forward svc/"$WEBUI_SERVICE_NAME" 8080:8080 &
 WEBUI_PID=$!
 
 echo "Port-Forwarding gestartet."
-echo "vLLM API: http://localhost:3333"
+echo "TGI API: http://localhost:3333"
 echo "WebUI: http://localhost:8080"
 echo "Drücken Sie CTRL+C, um das Port-Forwarding zu beenden."
 
 # Funktion zum Aufräumen beim Beenden
 cleanup() {
     echo "Beende Port-Forwarding..."
-    kill $VLLM_PID $WEBUI_PID 2>/dev/null || true
+    kill $TGI_PID $WEBUI_PID 2>/dev/null || true
     exit 0
 }
 

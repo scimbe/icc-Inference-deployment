@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Hauptskript für das Deployment von vLLM und Open WebUI auf der ICC
+# Hauptskript für das Deployment von Text Generation Inference (TGI) und Open WebUI auf der ICC
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -28,14 +28,14 @@ if ! kubectl get namespace "$NAMESPACE" &> /dev/null; then
     exit 1
 fi
 
-echo "=== ICC vLLM Deployment Starter ==="
+echo "=== ICC TGI Deployment Starter ==="
 echo "Namespace: $NAMESPACE"
 echo "GPU-Unterstützung: $([ "$USE_GPU" == "true" ] && echo "Aktiviert ($GPU_TYPE, $GPU_COUNT GPU(s))" || echo "Deaktiviert")"
 echo "Modell: $MODEL_NAME"
 
 # Führe Deployment-Skripte aus
-echo -e "\n1. Deploying vLLM..."
-"$SCRIPT_DIR/scripts/deploy-vllm.sh"
+echo -e "\n1. Deploying Text Generation Inference..."
+"$SCRIPT_DIR/scripts/deploy-tgi.sh"
 
 echo -e "\n2. Deploying Open WebUI..."
 "$SCRIPT_DIR/scripts/deploy-webui.sh"
@@ -45,17 +45,17 @@ echo "Überprüfen Sie den Status mit: kubectl -n $NAMESPACE get pods"
 
 # Zeige Anweisungen für den Zugriff
 echo -e "\n=== Zugriff auf die Dienste ==="
-echo "Hinweis: vLLM muss das Modell beim ersten Start herunterladen, was einige Zeit dauern kann."
-echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
+echo "Hinweis: TGI muss das Modell beim ersten Start herunterladen, was einige Zeit dauern kann."
+echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
 echo
-echo "Um auf vLLM und die WebUI zuzugreifen, führen Sie aus:"
+echo "Um auf TGI und die WebUI zuzugreifen, führen Sie aus:"
 echo "  ./scripts/port-forward.sh"
 echo
 echo "Alternativ können Sie auf die einzelnen Dienste separat zugreifen:"
-echo "  kubectl -n $NAMESPACE port-forward svc/$VLLM_SERVICE_NAME 8000:8000   # vLLM API"
+echo "  kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 3333:3333   # TGI API"
 echo "  kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 8080:8080  # Open WebUI"
 echo -e "\nÖffnen Sie dann http://localhost:8080 in Ihrem Browser für die WebUI"
-echo "Die vLLM API ist unter http://localhost:8000 erreichbar"
+echo "Die TGI API ist unter http://localhost:3333 erreichbar"
 
 if [ "$CREATE_INGRESS" == "true" ]; then
     echo -e "\nIngress wird erstellt für: $DOMAIN_NAME"

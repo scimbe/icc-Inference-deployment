@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Deployment der Open WebUI für vLLM
+# Skript zum Deployment der Open WebUI für Text Generation Inference (TGI)
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -18,11 +18,11 @@ fi
 # Erstelle temporäre YAML-Datei für das Deployment
 TMP_FILE=$(mktemp)
 
-# WebUI-Konfiguration mit VLLM_API_KEY
-if [ -n "$VLLM_API_KEY" ]; then
+# WebUI-Konfiguration mit TGI_API_KEY
+if [ -n "$TGI_API_KEY" ]; then
     WEBUI_API_KEY_ENV="
             - name: OPENAI_API_KEY
-              value: \"${VLLM_API_KEY}\""
+              value: \"${TGI_API_KEY}\""
 else
     WEBUI_API_KEY_ENV=""
 fi
@@ -35,16 +35,16 @@ metadata:
   name: $WEBUI_DEPLOYMENT_NAME
   namespace: $NAMESPACE
   labels:
-    service: vllm-webui
+    service: tgi-webui
 spec:
   replicas: 1
   selector:
     matchLabels:
-      service: vllm-webui
+      service: tgi-webui
   template:
     metadata:
       labels:
-        service: vllm-webui
+        service: tgi-webui
     spec:
       containers:
         - image: ghcr.io/open-webui/open-webui:main
@@ -53,7 +53,7 @@ spec:
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: OPENAI_API_BASE_URL
-              value: "http://$VLLM_SERVICE_NAME:8000/v1"$WEBUI_API_KEY_ENV
+              value: "http://$TGI_SERVICE_NAME:3333/v1"$WEBUI_API_KEY_ENV
             - name: ENABLE_RAG_WEB_SEARCH
               value: "false"
             - name: ENABLE_IMAGE_GENERATION
@@ -78,7 +78,7 @@ metadata:
   name: $WEBUI_SERVICE_NAME
   namespace: $NAMESPACE
   labels:
-    service: vllm-webui
+    service: tgi-webui
 spec:
   ports:
     - name: http
@@ -86,7 +86,7 @@ spec:
       protocol: TCP
       targetPort: 8080
   selector:
-    service: vllm-webui
+    service: tgi-webui
   type: ClusterIP
 EOF
 
@@ -108,6 +108,6 @@ kubectl -n "$NAMESPACE" rollout status deployment/"$WEBUI_DEPLOYMENT_NAME" --tim
 echo "Open WebUI Deployment erfolgreich."
 echo "Service erreichbar über: $WEBUI_SERVICE_NAME:8080"
 echo
-echo "HINWEIS: Die WebUI verbindet sich automatisch mit dem vLLM-Server über die OpenAI-kompatible API."
+echo "HINWEIS: Die WebUI verbindet sich automatisch mit dem TGI-Server über die OpenAI-kompatible API."
 echo "Überwachen Sie den Status mit: kubectl -n $NAMESPACE get pods"
 echo "Für direkten Zugriff führen Sie aus: kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 8080:8080"

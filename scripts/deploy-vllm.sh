@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Skript zum Deployment von Text Generation Inference (TGI) als Alternative zu vLLM
-# TGI bietet ebenfalls eine OpenAI-kompatible API und hat eine robustere Geräteerkennung
+# Skript zum Deployment von Text Generation Inference (TGI) 
+# TGI bietet eine OpenAI-kompatible API für die Ausführung von LLMs
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -23,14 +23,14 @@ FREE_MODEL="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 MODEL_TO_USE="${MODEL_NAME:-$FREE_MODEL}"
 
 # Entferne bestehende Deployments, falls vorhanden
-if kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
+if kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
     echo "Entferne bestehendes Deployment..."
-    kubectl -n "$NAMESPACE" delete deployment "$VLLM_DEPLOYMENT_NAME" --ignore-not-found=true
+    kubectl -n "$NAMESPACE" delete deployment "$TGI_DEPLOYMENT_NAME" --ignore-not-found=true
 fi
 
-if kubectl -n "$NAMESPACE" get service "$VLLM_SERVICE_NAME" &> /dev/null; then
+if kubectl -n "$NAMESPACE" get service "$TGI_SERVICE_NAME" &> /dev/null; then
     echo "Entferne bestehenden Service..."
-    kubectl -n "$NAMESPACE" delete service "$VLLM_SERVICE_NAME" --ignore-not-found=true
+    kubectl -n "$NAMESPACE" delete service "$TGI_SERVICE_NAME" --ignore-not-found=true
 fi
 
 # CUDA_DEVICES vorbereiten
@@ -56,7 +56,7 @@ cat > "$TMP_FILE" << EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${VLLM_DEPLOYMENT_NAME}
+  name: ${TGI_DEPLOYMENT_NAME}
   namespace: ${NAMESPACE}
   labels:
     app: llm-server
@@ -178,7 +178,7 @@ cat >> "$TMP_FILE" << EOF
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${VLLM_SERVICE_NAME}
+  name: ${TGI_SERVICE_NAME}
   namespace: ${NAMESPACE}
   labels:
     app: llm-server
@@ -207,18 +207,17 @@ rm "$TMP_FILE"
 
 # Warte auf das Deployment
 echo "Warte auf das TGI Deployment..."
-kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --timeout=300s
+kubectl -n "$NAMESPACE" rollout status deployment/"$TGI_DEPLOYMENT_NAME" --timeout=300s
 
 echo "TGI Deployment gestartet."
-echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
+echo "Service erreichbar über: $TGI_SERVICE_NAME:3333"
 echo
-echo "HINWEIS: Text Generation Inference (TGI) wird anstelle von vLLM verwendet."
 echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
-echo "HINWEIS: TGI bietet auch eine OpenAI-kompatible API."
+echo "HINWEIS: TGI bietet eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
 echo "HINWEIS: Mixed Precision (float16) ist aktiviert, um Speicherverbrauch zu reduzieren."
 echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
-echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
+echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
 echo
 echo "Für den Zugriff auf den Service führen Sie aus:"
-echo "kubectl -n $NAMESPACE port-forward svc/$VLLM_SERVICE_NAME 3333:3333"
+echo "kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 3333:3333"

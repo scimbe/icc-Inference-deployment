@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Beispielkonfigurationsdatei für das ICC vLLM Deployment
+# Beispielkonfigurationsdatei für das ICC TGI Deployment
 # Kopieren Sie diese Datei nach config.sh und passen Sie die Werte an Ihre Umgebung an
 
 # ICC Namespace (wird automatisch erstellt, normalerweise ist es Ihre w-Kennung + "-default")
@@ -8,17 +8,17 @@
 export NAMESPACE="wXYZ123-default"  # Ersetzen Sie dies mit Ihrem Namespace
 
 # Deployment-Namen
-export VLLM_DEPLOYMENT_NAME="my-vllm"
-export VLLM_SERVICE_NAME="my-vllm"
-export WEBUI_DEPLOYMENT_NAME="vllm-webui"
-export WEBUI_SERVICE_NAME="vllm-webui"
+export TGI_DEPLOYMENT_NAME="my-tgi"
+export TGI_SERVICE_NAME="my-tgi"
+export WEBUI_DEPLOYMENT_NAME="tgi-webui"
+export WEBUI_SERVICE_NAME="tgi-webui"
 
 # GPU-Konfiguration
 export USE_GPU=true  # Auf false setzen, wenn keine GPU benötigt wird
 export GPU_TYPE="gpu-tesla-v100"  # Oder "gpu-tesla-v100s" je nach Verfügbarkeit
 export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, multi-GPU kann Probleme verursachen)
 
-# vLLM-Konfiguration
+# TGI-Konfiguration
 # WICHTIG: Falls Sie das Llama-2-Modell verwenden möchten, benötigen Sie ein HuggingFace-Token!
 # Andernfalls wählen Sie ein frei zugängliches Modell wie unten vorgeschlagen
 
@@ -47,7 +47,7 @@ export MAX_MODEL_LEN=2048  # Maximale Kontext-Länge ... 8192 max
 export DTYPE="float16"  # Optional: "float16", "bfloat16" oder "float32"
 
 # API-Konfiguration
-export VLLM_API_KEY="changeme123"  # API-Schlüssel für vLLM
+export TGI_API_KEY="changeme123"  # API-Schlüssel für TGI
 
 # Ressourcenlimits
 export MEMORY_LIMIT="16Gi"  # Speicherlimit

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Testen der GPU-Funktionalität im vLLM Pod
+# Skript zum Testen der GPU-Funktionalität im TGI Pod
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -15,9 +15,9 @@ else
     exit 1
 fi
 
-# Überprüfe ob das vLLM Deployment existiert
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden."
+# Überprüfe ob das TGI Deployment existiert
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
@@ -30,9 +30,9 @@ if [ "$USE_GPU" != "true" ]; then
 fi
 
 # Hole den Pod-Namen
-POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l service=vllm -o jsonpath='{.items[0].metadata.name}')
+POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l app=llm-server -o jsonpath='{.items[0].metadata.name}')
 if [ -z "$POD_NAME" ]; then
-    echo "Fehler: Konnte keinen laufenden vLLM Pod finden."
+    echo "Fehler: Konnte keinen laufenden TGI Pod finden."
     exit 1
 fi
 
@@ -54,37 +54,36 @@ kubectl -n "$NAMESPACE" exec "$POD_NAME" -- bash -c 'echo $LD_LIBRARY_PATH'
 echo "NVIDIA_DRIVER_CAPABILITIES:"
 kubectl -n "$NAMESPACE" exec "$POD_NAME" -- bash -c 'echo $NVIDIA_DRIVER_CAPABILITIES'
 
-# Prüfe vLLM-spezifische Informationen
-echo -e "\n=== vLLM Konfiguration ==="
-# Extrahiere die args des vLLM-Containers
-VLLM_ARGS=$(kubectl -n "$NAMESPACE" get pod "$POD_NAME" -o jsonpath='{.spec.containers[0].args}')
-echo "vLLM Startparameter:"
-echo "$VLLM_ARGS" | tr -d '[],"' | tr ' ' '\n' | grep -v "^$" | sed 's/^/- /'
+# Prüfe TGI-spezifische Informationen
+echo -e "\n=== TGI Konfiguration ==="
+# Extrahiere die args des TGI-Containers
+TGI_ARGS=$(kubectl -n "$NAMESPACE" get pod "$POD_NAME" -o jsonpath='{.spec.containers[0].args}')
+echo "TGI Startparameter:"
+echo "$TGI_ARGS" | tr -d '[],"' | tr ' ' '\n' | grep -v "^$" | sed 's/^/- /'
 
 # GPU-Anzahl und Multi-GPU-Setup prüfen
 GPU_COUNT=$(kubectl -n "$NAMESPACE" get pod "$POD_NAME" -o jsonpath='{.spec.containers[0].resources.limits.nvidia\.com/gpu}')
 echo -e "\nGPU Konfiguration:"
 echo "- Zugewiesene GPUs: $GPU_COUNT"
 
-if echo "$VLLM_ARGS" | grep -q "tensor-parallel-size"; then
-    TP_SIZE=$(echo "$VLLM_ARGS" | tr -d '[],"' | tr ' ' '\n' | grep -A 1 "tensor-parallel-size" | tail -n 1)
-    echo "- Tensor-Parallelismus: $TP_SIZE"
+if echo "$TGI_ARGS" | grep -q "sharded"; then
+    echo "- Sharded Modus: Aktiviert (für Multi-GPU-Nutzung)"
     
-    if [ "$TP_SIZE" != "$GPU_COUNT" ]; then
-        echo "⚠️ Warnung: tensor-parallel-size ($TP_SIZE) unterscheidet sich von der GPU-Anzahl ($GPU_COUNT)"
-        echo "   Dies kann zu suboptimaler GPU-Nutzung führen."
+    if [ "$GPU_COUNT" -lt 2 ]; then
+        echo "⚠️ Warnung: Sharded-Modus ist aktiviert, aber nur $GPU_COUNT GPU zugewiesen"
+        echo "   Dies kann zu Problemen führen. Für Sharded-Modus werden mindestens 2 GPUs empfohlen."
     fi
 else
     if [ "$GPU_COUNT" -gt 1 ]; then
-        echo "⚠️ Warnung: Mehrere GPUs ($GPU_COUNT) sind zugewiesen, aber tensor-parallel-size ist nicht gesetzt."
+        echo "⚠️ Warnung: Mehrere GPUs ($GPU_COUNT) sind zugewiesen, aber Sharded-Modus ist nicht aktiviert."
         echo "   Dies kann zu suboptimaler GPU-Nutzung führen."
     else
-        echo "- Tensor-Parallelismus: Nicht aktiviert (nur eine GPU)"
+        echo "- Sharded-Modus: Nicht aktiviert (nur eine GPU)"
     fi
 fi
 
-# Teste vLLM API
-echo -e "\n=== vLLM API Test ==="
+# Teste TGI API
+echo -e "\n=== TGI API Test ==="
 # Starte temporäres Port-Forwarding
 PORT_FWD_PID=""
 cleanup() {
@@ -95,18 +94,18 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Starte temporäres Port-Forwarding für API-Test..."
-kubectl -n "$NAMESPACE" port-forward "svc/$VLLM_SERVICE_NAME" 8000:8000 &>/dev/null &
+kubectl -n "$NAMESPACE" port-forward "svc/$TGI_SERVICE_NAME" 3333:3333 &>/dev/null &
 PORT_FWD_PID=$!
 sleep 2
 
-# Prüfe, ob der vLLM-Server API-Anfragen beantwortet
-if curl -s http://localhost:8000/v1/models &> /dev/null; then
-    MODEL_INFO=$(curl -s http://localhost:8000/v1/models)
-    echo "✅ vLLM API funktioniert korrekt."
+# Prüfe, ob der TGI-Server API-Anfragen beantwortet
+if curl -s http://localhost:3333/v1/models &> /dev/null; then
+    MODEL_INFO=$(curl -s http://localhost:3333/v1/models)
+    echo "✅ TGI API funktioniert korrekt."
     echo "Modell-Information:"
     echo "$MODEL_INFO" | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//g' | sed 's/^/- /'
 else
-    echo "❌ vLLM API antwortet nicht wie erwartet."
+    echo "❌ TGI API antwortet nicht wie erwartet."
     echo "Der Server lädt möglicherweise noch das Modell oder ist nicht bereit."
     echo "Überprüfen Sie die Logs mit: kubectl -n $NAMESPACE logs $POD_NAME"
 fi
@@ -117,14 +116,14 @@ read -p "Möchten Sie einen GPU-Inferenztest durchführen? (j/N) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Jj]$ ]]; then
     # Überprüfe, ob API erreichbar ist und das Modell geladen ist
-    if curl -s http://localhost:8000/v1/models &> /dev/null; then
+    if curl -s http://localhost:3333/v1/models &> /dev/null; then
         echo "Führe Inferenztest durch..."
         
         # Zeitmessung für Inference beginnen
         START_TIME=$(date +%s.%N)
         
         # Führe einen einfachen Chat-Completion aus
-        curl -s http://localhost:8000/v1/chat/completions \
+        curl -s http://localhost:3333/v1/chat/completions \
           -H "Content-Type: application/json" \
           -d '{
             "model": "'$MODEL_NAME'",
@@ -139,7 +138,7 @@ if [[ $REPLY =~ ^[Jj]$ ]]; then
         echo "Inferenz-Dauer: $DURATION Sekunden"
     else
         echo "❌ Inferenztest konnte nicht durchgeführt werden, da die API nicht erreichbar ist."
-        echo "Überprüfen Sie die Logs und den Status des vLLM-Pods."
+        echo "Überprüfen Sie die Logs und den Status des TGI-Pods."
     fi
 fi
 
