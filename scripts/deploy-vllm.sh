@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Deployment von vLLM mit GPU-Unterstützung ohne ZMQ
+# Skript zum Deployment von vLLM mit GPU-Unterstützung und Standalone-Modus
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -51,8 +51,12 @@ else
     GPU_ENV=""
 fi
 
-# vLLM-Command-Argumente
-VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
+# vLLM-Command-Argumente 
+# Statt OpenAI API Server verwenden wir das direkte vLLM-Modul
+VLLM_COMMAND="[\"python\", \"-m\", \"vllm.entrypoints.api_server\""
+
+# Modell-Spezifikation
+VLLM_COMMAND+=", \"--model\", \"${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
@@ -69,6 +73,8 @@ VLLM_COMMAND+=", \"--host\", \"0.0.0.0\""
 VLLM_COMMAND+=", \"--port\", \"8000\""
 VLLM_COMMAND+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
 VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
+
+# Distributed Executor setzen - Wichtig für Standalone-Modus ohne ZMQ
 VLLM_COMMAND+=", \"--distributed-executor-backend\", \"uni\""
 
 if [ -n "$DTYPE" ]; then
@@ -180,7 +186,7 @@ kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --time
 echo "vLLM Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:8000"
 echo
-echo "HINWEIS: vLLM nutzt den 'uni' Executor-Backend ohne Ray/ZMQ."
+echo "HINWEIS: vLLM wurde im Standalone-Modus ohne ZMQ konfiguriert."
 echo "HINWEIS: vLLM muss das Modell jetzt herunterladen und in den GPU-Speicher laden."
 echo "Dieser Vorgang kann je nach Modellgröße einige Minuten bis Stunden dauern."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
