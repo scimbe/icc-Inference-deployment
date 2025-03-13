@@ -16,9 +16,11 @@ else
     exit 1
 fi
 
-# Standard-Testmodell, falls benötigt
-TEST_MODEL="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-MODEL_TO_USE="${MODEL_NAME:-$TEST_MODEL}"
+# Standard-Testmodell - frei verfügbares Modell für Fallback
+FREE_MODEL="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
+# Verwende das konfigurierte Modell
+MODEL_TO_USE="${MODEL_NAME:-$FREE_MODEL}"
 
 # Entferne bestehende Deployments, falls vorhanden
 if kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
@@ -41,6 +43,13 @@ fi
 
 # Erstelle temporäre Datei
 TMP_FILE=$(mktemp)
+
+# Logge den HuggingFace-Token-Status (redacted für Sicherheit)
+if [ -n "$HUGGINGFACE_TOKEN" ]; then
+    echo "HuggingFace-Token ist konfiguriert (${HUGGINGFACE_TOKEN:0:3}...${HUGGINGFACE_TOKEN: -3})"
+else
+    echo "WARNUNG: Kein HuggingFace-Token konfiguriert. Gated Modelle werden nicht funktionieren."
+fi
 
 # Schreibe YAML für TGI Deployment
 cat > "$TMP_FILE" << EOF
@@ -85,7 +94,7 @@ cat >> "$TMP_FILE" << EOF
         - "--port=8000"
 EOF
 
-# Mixed Precision - korrigierte Version
+# Mixed Precision
 cat >> "$TMP_FILE" << EOF
         - "--dtype=float16"
 EOF
@@ -123,10 +132,12 @@ if [ "$USE_GPU" == "true" ]; then
 EOF
 fi
 
-# HuggingFace Token wenn vorhanden
+# HuggingFace Token wenn vorhanden - jetzt korrekt gesetzt
 if [ -n "$HUGGINGFACE_TOKEN" ]; then
     cat >> "$TMP_FILE" << EOF
         - name: HF_TOKEN
+          value: "${HUGGINGFACE_TOKEN}"
+        - name: HUGGING_FACE_HUB_TOKEN
           value: "${HUGGINGFACE_TOKEN}"
 EOF
 fi
@@ -184,6 +195,7 @@ EOF
 
 # Anwenden der Konfiguration
 echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
+echo "Verwendetes Modell: $MODEL_TO_USE"
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
@@ -201,6 +213,7 @@ echo "TGI Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
 echo
 echo "HINWEIS: Text Generation Inference (TGI) wird anstelle von vLLM verwendet."
+echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
 echo "HINWEIS: TGI bietet auch eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
 echo "HINWEIS: Mixed Precision (float16) ist aktiviert, um Speicherverbrauch zu reduzieren."
