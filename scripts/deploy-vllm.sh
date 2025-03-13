@@ -45,34 +45,32 @@ else
     GPU_ENV=""
 fi
 
-# vLLM-spezifische Parameter vorbereiten als JSON-Array
-# Bei neueren vLLM-Versionen wird "python -m vllm.entrypoints.openai.api_server" verwendet statt "serve"
-VLLM_ARGS_JSON="[\"python\", \"-m\", \"vllm.entrypoints.openai.api_server\""
-
-# Modell hinzufügen
-VLLM_ARGS_JSON+=", \"--model\", \"huggingface/${MODEL_NAME}\""
+# vLLM-Command-Argumente
+# Hier wird das command und args komplett neu gestaltet - die vLLM-Container haben ein Entrypoint-Skript,
+# das die Argumente erwartet, nicht den Python-Befehl selbst
+VLLM_COMMAND="[\"--model\", \"huggingface/${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
-    VLLM_ARGS_JSON+=", \"--quantization\", \"${QUANTIZATION}\""
+    VLLM_COMMAND+=", \"--quantization\", \"${QUANTIZATION}\""
 fi
 
 # Tensor Parallel Size (Multi-GPU)
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
-    VLLM_ARGS_JSON+=", \"--tensor-parallel-size\", \"${GPU_COUNT}\""
+    VLLM_COMMAND+=", \"--tensor-parallel-size\", \"${GPU_COUNT}\""
 fi
 
 # Weitere vLLM-Parameter
-VLLM_ARGS_JSON+=", \"--host\", \"0.0.0.0\""
-VLLM_ARGS_JSON+=", \"--port\", \"8000\""
-VLLM_ARGS_JSON+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
-VLLM_ARGS_JSON+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
+VLLM_COMMAND+=", \"--host\", \"0.0.0.0\""
+VLLM_COMMAND+=", \"--port\", \"8000\""
+VLLM_COMMAND+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
+VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
 
 if [ -n "$DTYPE" ]; then
-    VLLM_ARGS_JSON+=", \"--dtype\", \"${DTYPE}\""
+    VLLM_COMMAND+=", \"--dtype\", \"${DTYPE}\""
 fi
 
-VLLM_ARGS_JSON+="]"
+VLLM_COMMAND+="]"
 
 # API Key für vLLM
 if [ -n "$VLLM_API_KEY" ]; then
@@ -105,7 +103,7 @@ spec:
       containers:
         - image: vllm/vllm-openai:latest
           name: vllm
-          args: $VLLM_ARGS_JSON
+          args: $VLLM_COMMAND
           env:$GPU_ENV$VLLM_API_ENV
           ports:
             - containerPort: 8000
