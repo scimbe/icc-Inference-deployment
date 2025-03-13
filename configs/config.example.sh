@@ -32,8 +32,8 @@ export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, multi-GPU kann Probleme
 # export MODEL_NAME="meta-llama/Llama-2-7b-chat-hf"
 # export MODEL_NAME="meta-llama/Llama-2-13b-chat-hf"
 
-# Standardmäßig verwenden wir Mistral 7B, da es kein Token erfordert
-export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  
+# Standardmäßig verwenden wir microsoft/phi-2, da recht klein zum testen 
+export MODEL_NAME="microsoft/phi-2"
 
 # Hugging Face Token für den Zugriff auf geschützte Modelle
 # Wenn Sie Llama-2 oder andere gated Modelle verwenden möchten, geben Sie hier Ihr Token an
@@ -43,7 +43,7 @@ export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated M
 
 export QUANTIZATION=""  # Optional: "awq" oder "gptq" für quantisierte Modelle
 export GPU_MEMORY_UTILIZATION=0.9  # Anteil des GPU-Speichers, der genutzt werden soll (0.0-1.0)
-export MAX_MODEL_LEN=8192  # Maximale Kontext-Länge
+export MAX_MODEL_LEN=2048  # Maximale Kontext-Länge ... 8192 max
 export DTYPE="float16"  # Optional: "float16", "bfloat16" oder "float32"
 
 # API-Konfiguration
