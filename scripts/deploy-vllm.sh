@@ -45,35 +45,33 @@ else
     GPU_ENV=""
 fi
 
-# vLLM-spezifische Parameter vorbereiten - als Array für korrekte Übergabe
-VLLM_ARGS=()
-VLLM_ARGS+=("--model" "huggingface/${MODEL_NAME}")
+# vLLM-spezifische Parameter vorbereiten als JSON-Array
+# Bei neueren vLLM-Versionen wird "python -m vllm.entrypoints.openai.api_server" verwendet statt "serve"
+VLLM_ARGS_JSON="[\"python\", \"-m\", \"vllm.entrypoints.openai.api_server\""
+
+# Modell hinzufügen
+VLLM_ARGS_JSON+=", \"--model\", \"huggingface/${MODEL_NAME}\""
 
 # Wenn Quantisierung aktiviert ist
 if [ -n "$QUANTIZATION" ]; then
-    VLLM_ARGS+=("--quantization" "${QUANTIZATION}")
+    VLLM_ARGS_JSON+=", \"--quantization\", \"${QUANTIZATION}\""
 fi
 
 # Tensor Parallel Size (Multi-GPU)
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
-    VLLM_ARGS+=("--tensor-parallel-size" "${GPU_COUNT}")
+    VLLM_ARGS_JSON+=", \"--tensor-parallel-size\", \"${GPU_COUNT}\""
 fi
 
 # Weitere vLLM-Parameter
-VLLM_ARGS+=("--host" "0.0.0.0")
-VLLM_ARGS+=("--port" "8000")
-VLLM_ARGS+=("--gpu-memory-utilization" "${GPU_MEMORY_UTILIZATION}")
-VLLM_ARGS+=("--max-model-len" "${MAX_MODEL_LEN}")
+VLLM_ARGS_JSON+=", \"--host\", \"0.0.0.0\""
+VLLM_ARGS_JSON+=", \"--port\", \"8000\""
+VLLM_ARGS_JSON+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
+VLLM_ARGS_JSON+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
 
 if [ -n "$DTYPE" ]; then
-    VLLM_ARGS+=("--dtype" "${DTYPE}")
+    VLLM_ARGS_JSON+=", \"--dtype\", \"${DTYPE}\""
 fi
 
-# Erstelle ein JSON-Array aus den VLLM_ARGS für die YAML-Vorlage
-VLLM_ARGS_JSON="[\"serve\""
-for arg in "${VLLM_ARGS[@]}"; do
-    VLLM_ARGS_JSON+=", \"$arg\""
-done
 VLLM_ARGS_JSON+="]"
 
 # API Key für vLLM
