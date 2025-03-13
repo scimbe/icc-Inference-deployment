@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Ändern des Modells im vLLM-Deployment
+# Skript zum Ändern des Modells im TGI-Deployment
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -19,7 +19,7 @@ fi
 show_help() {
     echo "Verwendung: $0 [OPTIONEN]"
     echo
-    echo "Skript zum Ändern des Modells im vLLM-Deployment."
+    echo "Skript zum Ändern des Modells im TGI-Deployment."
     echo
     echo "Optionen:"
     echo "  -m, --model NAME      Modellname oder HuggingFace-Pfad (z.B. meta-llama/Llama-2-7b-chat-hf)"
@@ -75,17 +75,17 @@ if [[ -z "$NEW_MODEL" ]]; then
     show_help
 fi
 
-# Überprüfe ob das vLLM Deployment existiert
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden."
+# Überprüfe ob das TGI Deployment existiert
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
 
 # Aktuelles Modell anzeigen
-echo "=== Modellwechsel für vLLM ==="
+echo "=== Modellwechsel für TGI ==="
 echo "Namespace: $NAMESPACE"
-echo "Deployment: $VLLM_DEPLOYMENT_NAME"
+echo "Deployment: $TGI_DEPLOYMENT_NAME"
 echo "Aktuelles Modell: $MODEL_NAME"
 echo "Neues Modell: $NEW_MODEL"
 
@@ -103,7 +103,7 @@ fi
 
 # Bestätigung einholen
 echo
-read -p "Möchten Sie das Modell wechseln? Dies wird einen Neustart des vLLM-Pods verursachen. (j/N) " -n 1 -r
+read -p "Möchten Sie das Modell wechseln? Dies wird einen Neustart des TGI-Pods verursachen. (j/N) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Jj]$ ]]; then
     echo "Abbruch"
@@ -140,10 +140,10 @@ fi
 source "$ROOT_DIR/configs/config.sh"
 
 # Deployment neu starten
-echo "Starte vLLM-Deployment mit neuem Modell..."
-"$ROOT_DIR/scripts/deploy-vllm.sh"
+echo "Starte TGI-Deployment mit neuem Modell..."
+"$ROOT_DIR/scripts/deploy-tgi.sh"
 
 echo "Modellwechsel abgeschlossen."
 echo "Das neue Modell '$MODEL_NAME' wird beim Start geladen."
 echo "HINWEIS: Das Laden des neuen Modells kann je nach Größe einige Zeit in Anspruch nehmen."
-echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
+echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
