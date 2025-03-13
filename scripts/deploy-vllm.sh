@@ -1,6 +1,9 @@
 #!/bin/bash
 
-# Skript zum Deployment von vLLM mit GPU-Unterstützung und direktem API-Server-Modus
+# Skript zum Deployment von vLLM mit GPU-Unterstützung ohne ZMQ
+# Fügt einen CUDA-Test vor dem Modellstart hinzu
+# Verwendet Port 3333 statt 8000
+# Aktiviert Mixed Precision (half) für optimierten Speicherverbrauch
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -30,6 +33,15 @@ if [ "$USE_GPU" == "true" ]; then
     GPU_RESOURCES="
               nvidia.com/gpu: $GPU_COUNT"
     
+    # GPU-Umgebungsvariablen für optimale Performance
+    CUDA_DEVICES="0"
+    if [ "$GPU_COUNT" -gt 1 ]; then
+        # Für Multi-GPU: CUDA_VISIBLE_DEVICES mit entsprechender Anzahl
+        for ((i=1; i<GPU_COUNT; i++)); do
+            CUDA_DEVICES="$CUDA_DEVICES,$i"
+        done
+    fi
+    
     GPU_ENV="
             - name: PATH
               value: /usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -37,56 +49,19 @@ if [ "$USE_GPU" == "true" ]; then
               value: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
-            - name: PYTORCH_CUDA_ALLOC_CONF
-              value: expandable_segments:True
-            - name: NCCL_DEBUG
+            - name: CUDA_VISIBLE_DEVICES
+              value: \"${CUDA_DEVICES}\"
+            - name: VLLM_LOGGING_LEVEL
               value: \"INFO\"
-            - name: NCCL_IB_DISABLE
-              value: \"1\"
-            - name: NCCL_P2P_DISABLE
-              value: \"1\""
+            - name: NCCL_SOCKET_IFNAME
+              value: \"eth0\"
+            - name: NCCL_DEBUG
+              value: \"INFO\""
 else
     GPU_TOLERATIONS=""
     GPU_RESOURCES=""
     GPU_ENV=""
 fi
-
-# vLLM-Command-Argumente 
-# Das vLLM-Container-Image verwendet standardmäßig einen Entrypoint, der die API startet
-VLLM_COMMAND="[\"--model\", \"${MODEL_NAME}\""
-
-# Wenn Quantisierung aktiviert ist
-if [ -n "$QUANTIZATION" ]; then
-    VLLM_COMMAND+=", \"--quantization\", \"${QUANTIZATION}\""
-fi
-
-# Tensor Parallel Size (Multi-GPU)
-if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
-    VLLM_COMMAND+=", \"--tensor-parallel-size\", \"${GPU_COUNT}\""
-fi
-
-# Weitere vLLM-Parameter
-VLLM_COMMAND+=", \"--host\", \"0.0.0.0\""
-VLLM_COMMAND+=", \"--port\", \"8000\""
-VLLM_COMMAND+=", \"--gpu-memory-utilization\", \"${GPU_MEMORY_UTILIZATION}\""
-VLLM_COMMAND+=", \"--max-model-len\", \"${MAX_MODEL_LEN}\""
-
-# Distributed Executor setzen - Wichtig für Standalone-Modus ohne ZMQ
-VLLM_COMMAND+=", \"--distributed-executor-backend\", \"uni\""
-
-# Asynchrone Ausgabeverarbeitung deaktivieren, um ZMQ zu vermeiden
-VLLM_COMMAND+=", \"--disable-async-output-proc\""
-
-if [ -n "$DTYPE" ]; then
-    VLLM_COMMAND+=", \"--dtype\", \"${DTYPE}\""
-fi
-
-# Deaktiviere Multi-GPU, falls auf 1 reduziert
-if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ]; then
-    VLLM_COMMAND+=", \"--disable-custom-all-reduce\""
-fi
-
-VLLM_COMMAND+="]"
 
 # API Key für vLLM
 if [ -n "$VLLM_API_KEY" ]; then
@@ -106,16 +81,42 @@ else
     HF_TOKEN_ENV=""
 fi
 
-# Wichtige Umgebungsvariablen, um ZMQ und asynchrone Verarbeitung zu deaktivieren
-ZMQ_ENV="
-            - name: VLLM_USE_RAY
-              value: \"false\"
-            - name: DISABLE_UVLOOP
-              value: \"true\"
-            - name: DISABLE_ASYNC_PROCESSING
-              value: \"true\""
+# CUDA-Test-Skript
+CUDA_TEST_SCRIPT="
+import torch
+import sys
+import os
 
-# Erstelle YAML für vLLM Deployment
+print('=== CUDA Verfügbarkeitstest ===')
+print(f'PyTorch Version: {torch.__version__}')
+print(f'CUDA verfügbar: {torch.cuda.is_available()}')
+
+if torch.cuda.is_available():
+    print(f'CUDA Version: {torch.version.cuda}')
+    print(f'Anzahl GPUs: {torch.cuda.device_count()}')
+    for i in range(torch.cuda.device_count()):
+        print(f'GPU {i}: {torch.cuda.get_device_name(i)}')
+    
+    # Test der GPU-Speicherzuweisung
+    try:
+        # 10 MB Tensor auf GPU erstellen
+        tensor = torch.rand(10 * 1024 * 1024 // 4, device='cuda')
+        print(f'Konnte erfolgreich Tensor mit {tensor.numel() * 4 / 1024 / 1024:.2f} MB auf GPU allozieren')
+        del tensor
+    except Exception as e:
+        print(f'Fehler bei GPU-Speicherallokation: {e}')
+else:
+    print('WARNUNG: CUDA ist nicht verfügbar!')
+    print('Umgebungsvariablen:')
+    for k, v in os.environ.items():
+        if 'CUDA' in k:
+            print(f'{k}: {v}')
+    sys.exit(1)
+
+print('CUDA-Test erfolgreich abgeschlossen.')
+"
+
+# Erstelle YAML für vLLM Deployment mit eigenem Entrypoint und CUDA-Test
 cat << EOF > "$TMP_FILE"
 apiVersion: apps/v1
 kind: Deployment
@@ -134,13 +135,37 @@ spec:
       labels:
         service: vllm
     spec:$GPU_TOLERATIONS
+      initContainers:
+        - name: cuda-test
+          image: vllm/vllm-openai:latest
+          command: ["python", "-c"]
+          args:
+            - |
+              $CUDA_TEST_SCRIPT
+          env:$GPU_ENV
+          resources:
+            limits:
+              memory: "2Gi"
+              cpu: "1"$GPU_RESOURCES
       containers:
-        - image: vllm/vllm-openai:latest
+        - image: vllm/vllm-openai:v0.2.5
           name: vllm
-          args: $VLLM_COMMAND
-          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV$ZMQ_ENV
+          command: ["/bin/bash", "-c"]
+          args:
+            - >
+              python -m vllm.entrypoints.openai.api_server
+              --model $MODEL_NAME
+              --host 0.0.0.0
+              --port 3333
+              --gpu-memory-utilization $GPU_MEMORY_UTILIZATION
+              --max-model-len $MAX_MODEL_LEN
+              --dtype half
+              $([ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ] && echo "--tensor-parallel-size $GPU_COUNT")
+              $([ -n "$QUANTIZATION" ] && echo "--quantization $QUANTIZATION")
+              $([ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ] && echo "--disable-custom-all-reduce")
+          env:$GPU_ENV$VLLM_API_ENV$HF_TOKEN_ENV
           ports:
-            - containerPort: 8000
+            - containerPort: 3333
               protocol: TCP
           resources:
             limits:
@@ -169,16 +194,16 @@ metadata:
 spec:
   ports:
     - name: http
-      port: 8000
+      port: 3333
       protocol: TCP
-      targetPort: 8000
+      targetPort: 3333
   selector:
     service: vllm
   type: ClusterIP
 EOF
 
 # Anwenden der Konfiguration
-echo "Deploying vLLM to namespace $NAMESPACE..."
+echo "Deploying vLLM to namespace $NAMESPACE mit vLLM v0.2.5 und CUDA-Test..."
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
@@ -193,9 +218,17 @@ echo "Warte auf das vLLM Deployment..."
 kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --timeout=300s
 
 echo "vLLM Deployment gestartet."
-echo "Service erreichbar über: $VLLM_SERVICE_NAME:8000"
+echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
 echo
-echo "HINWEIS: vLLM wurde im Standalone-Modus ohne ZMQ konfiguriert."
+echo "HINWEIS: Ein CUDA-Test wurde als Init-Container hinzugefügt."
+echo "HINWEIS: vLLM v0.2.5 wird verwendet, die keine ZMQ-Abhängigkeit hat."
+echo "HINWEIS: vLLM nutzt Port 3333 statt des standardmäßigen Ports 8000."
+echo "HINWEIS: CUDA_VISIBLE_DEVICES ist auf '$CUDA_DEVICES' gesetzt."
+echo "HINWEIS: Mixed Precision (half) ist aktiviert, um Speicherverbrauch zu reduzieren."
 echo "HINWEIS: vLLM muss das Modell jetzt herunterladen und in den GPU-Speicher laden."
 echo "Dieser Vorgang kann je nach Modellgröße einige Minuten bis Stunden dauern."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
+echo "Überprüfen Sie die CUDA-Testergebnisse mit: kubectl -n $NAMESPACE logs deployment/$VLLM_DEPLOYMENT_NAME -c cuda-test"
+echo
+echo "Für den Zugriff auf den Service führen Sie aus:"
+echo "kubectl -n $NAMESPACE port-forward svc/$VLLM_SERVICE_NAME 3333:3333"

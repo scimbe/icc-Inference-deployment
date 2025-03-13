@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Skript zum Starten des Port-Forwardings für vLLM und WebUI
+# Angepasst für vLLM auf Port 3333
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -29,8 +30,8 @@ if ! kubectl -n "$NAMESPACE" get deployment "$WEBUI_DEPLOYMENT_NAME" &> /dev/nul
 fi
 
 # Starte Port-Forwarding in separaten Prozessen
-echo "Starte Port-Forwarding für vLLM auf Port 8000..."
-kubectl -n "$NAMESPACE" port-forward svc/"$VLLM_SERVICE_NAME" 8000:8000 &
+echo "Starte Port-Forwarding für vLLM auf Port 3333..."
+kubectl -n "$NAMESPACE" port-forward svc/"$VLLM_SERVICE_NAME" 3333:3333 &
 VLLM_PID=$!
 
 echo "Starte Port-Forwarding für WebUI auf Port 8080..."
@@ -39,7 +40,7 @@ kubectl -n "$NAMESPACE" port-forward svc/"$WEBUI_SERVICE_NAME" 8080:8080 &
 WEBUI_PID=$!
 
 echo "Port-Forwarding gestartet."
-echo "vLLM API: http://localhost:8000"
+echo "vLLM API: http://localhost:3333"
 echo "WebUI: http://localhost:8080"
 echo "Drücken Sie CTRL+C, um das Port-Forwarding zu beenden."
 
