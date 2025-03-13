@@ -85,9 +85,9 @@ cat >> "$TMP_FILE" << EOF
         - "--port=8000"
 EOF
 
-# Mixed Precision
+# Mixed Precision - korrigierte Version
 cat >> "$TMP_FILE" << EOF
-        - "--dtype=half"
+        - "--dtype=float16"
 EOF
 
 # Quantisierungsoptionen
@@ -203,7 +203,7 @@ echo
 echo "HINWEIS: Text Generation Inference (TGI) wird anstelle von vLLM verwendet."
 echo "HINWEIS: TGI bietet auch eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
-echo "HINWEIS: Mixed Precision (half) ist aktiviert, um Speicherverbrauch zu reduzieren."
+echo "HINWEIS: Mixed Precision (float16) ist aktiviert, um Speicherverbrauch zu reduzieren."
 echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
 echo
