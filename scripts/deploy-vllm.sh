@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Skript zum Deployment von vLLM mit GPU-Unterstützung
-# Mit expliziter Device-Definition
+# Skript zum Deployment von Text Generation Inference (TGI) als Alternative zu vLLM
+# TGI bietet ebenfalls eine OpenAI-kompatible API und hat eine robustere Geräteerkennung
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -16,18 +16,33 @@ else
     exit 1
 fi
 
+# Standard-Testmodell, falls benötigt
+TEST_MODEL="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_TO_USE="${MODEL_NAME:-$TEST_MODEL}"
+
+# Entferne bestehende Deployments, falls vorhanden
+if kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Entferne bestehendes Deployment..."
+    kubectl -n "$NAMESPACE" delete deployment "$VLLM_DEPLOYMENT_NAME" --ignore-not-found=true
+fi
+
+if kubectl -n "$NAMESPACE" get service "$VLLM_SERVICE_NAME" &> /dev/null; then
+    echo "Entferne bestehenden Service..."
+    kubectl -n "$NAMESPACE" delete service "$VLLM_SERVICE_NAME" --ignore-not-found=true
+fi
+
 # CUDA_DEVICES vorbereiten
 CUDA_DEVICES="0"
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
     for ((i=1; i<GPU_COUNT; i++)); do
-        CUDA_DEVICES="${CUDA_DEVICES},${i}"
+        CUDA_DEVICES="${CUDA_DEVICES},$i"
     done
 fi
 
 # Erstelle temporäre Datei
 TMP_FILE=$(mktemp)
 
-# Schreibe YAML-Datei mit expliziten Umgebungsvariablen für Geräterkennung
+# Schreibe YAML für TGI Deployment
 cat > "$TMP_FILE" << EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -35,16 +50,16 @@ metadata:
   name: ${VLLM_DEPLOYMENT_NAME}
   namespace: ${NAMESPACE}
   labels:
-    service: vllm
+    app: llm-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      service: vllm
+      app: llm-server
   template:
     metadata:
       labels:
-        service: vllm
+        app: llm-server
     spec:
 EOF
 
@@ -61,37 +76,37 @@ fi
 # Container-Definition
 cat >> "$TMP_FILE" << EOF
       containers:
-      - name: vllm
-        image: vllm/vllm-openai:latest
-        command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      - name: tgi
+        image: ghcr.io/huggingface/text-generation-inference:1.2.0
+        imagePullPolicy: IfNotPresent
+        command: ["text-generation-launcher"]
         args:
-        - "--model=${MODEL_NAME}"
-        - "--device=cuda"
-        - "--host=0.0.0.0"
+        - "--model-id=${MODEL_TO_USE}"
         - "--port=8000"
-        - "--dtype=half"
-        - "--gpu-memory-utilization=${GPU_MEMORY_UTILIZATION}"
-        - "--max-model-len=${MAX_MODEL_LEN}"
 EOF
 
-# Multi-GPU Unterstützung
+# Mixed Precision
+cat >> "$TMP_FILE" << EOF
+        - "--dtype=half"
+EOF
+
+# Quantisierungsoptionen
+if [ -n "$QUANTIZATION" ]; then
+    if [ "$QUANTIZATION" == "awq" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - "--quantize=awq"
+EOF
+    elif [ "$QUANTIZATION" == "gptq" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - "--quantize=gptq"
+EOF
+    fi
+fi
+
+# Multi-GPU Parameter
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
     cat >> "$TMP_FILE" << EOF
-        - "--tensor-parallel-size=${GPU_COUNT}"
-EOF
-fi
-
-# Quantisierung
-if [ -n "$QUANTIZATION" ]; then
-    cat >> "$TMP_FILE" << EOF
-        - "--quantization=${QUANTIZATION}"
-EOF
-fi
-
-# Single-GPU Optimierung
-if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -eq 1 ]; then
-    cat >> "$TMP_FILE" << EOF
-        - "--disable-custom-all-reduce"
+        - "--sharded=true"
 EOF
 fi
 
@@ -105,15 +120,13 @@ if [ "$USE_GPU" == "true" ]; then
     cat >> "$TMP_FILE" << EOF
         - name: CUDA_VISIBLE_DEVICES
           value: "${CUDA_DEVICES}"
-        - name: NVIDIA_VISIBLE_DEVICES
-          value: "${CUDA_DEVICES}"
 EOF
 fi
 
 # HuggingFace Token wenn vorhanden
 if [ -n "$HUGGINGFACE_TOKEN" ]; then
     cat >> "$TMP_FILE" << EOF
-        - name: HUGGING_FACE_HUB_TOKEN
+        - name: HF_TOKEN
           value: "${HUGGINGFACE_TOKEN}"
 EOF
 fi
@@ -140,7 +153,7 @@ fi
 cat >> "$TMP_FILE" << EOF
         volumeMounts:
         - name: model-cache
-          mountPath: /root/.cache/huggingface
+          mountPath: /data
         - name: dshm
           mountPath: /dev/shm
       volumes:
@@ -149,7 +162,7 @@ cat >> "$TMP_FILE" << EOF
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: 8Gi
+          sizeLimit: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -157,7 +170,7 @@ metadata:
   name: ${VLLM_SERVICE_NAME}
   namespace: ${NAMESPACE}
   labels:
-    service: vllm
+    app: llm-server
 spec:
   ports:
   - name: http
@@ -165,12 +178,12 @@ spec:
     protocol: TCP
     targetPort: 8000
   selector:
-    service: vllm
+    app: llm-server
   type: ClusterIP
 EOF
 
 # Anwenden der Konfiguration
-echo "Deploying vLLM zu Namespace $NAMESPACE mit expliziter GPU-Konfiguration..."
+echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
@@ -181,18 +194,17 @@ kubectl apply -f "$TMP_FILE"
 rm "$TMP_FILE"
 
 # Warte auf das Deployment
-echo "Warte auf das vLLM Deployment..."
+echo "Warte auf das TGI Deployment..."
 kubectl -n "$NAMESPACE" rollout status deployment/"$VLLM_DEPLOYMENT_NAME" --timeout=300s
 
-echo "vLLM Deployment gestartet."
+echo "TGI Deployment gestartet."
 echo "Service erreichbar über: $VLLM_SERVICE_NAME:3333"
 echo
-echo "HINWEIS: Diese Version verwendet explizite CUDA-Konfiguration."
-echo "HINWEIS: vLLM Port 8000 wird auf Service-Port 3333 gemappt."
-echo "HINWEIS: CUDA_VISIBLE_DEVICES ist auf '$CUDA_DEVICES' gesetzt."
+echo "HINWEIS: Text Generation Inference (TGI) wird anstelle von vLLM verwendet."
+echo "HINWEIS: TGI bietet auch eine OpenAI-kompatible API."
+echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
 echo "HINWEIS: Mixed Precision (half) ist aktiviert, um Speicherverbrauch zu reduzieren."
-echo "HINWEIS: vLLM muss das Modell jetzt herunterladen und in den GPU-Speicher laden."
-echo "Dieser Vorgang kann je nach Modellgröße einige Minuten bis Stunden dauern."
+echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$VLLM_DEPLOYMENT_NAME"
 echo
 echo "Für den Zugriff auf den Service führen Sie aus:"
