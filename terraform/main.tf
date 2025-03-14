@@ -108,19 +108,3 @@ resource "docker_image" "huggingchat" {
   count = var.ui_type == "huggingchat" ? 1 : 0
   name  = "ghcr.io/huggingface/chat-ui:latest"
 }
-
-# Ausgabe: URL für die UI
-output "ui_url" {
-  description = "URL zur Benutzeroberfläche"
-  value       = "http://localhost:${var.webui_external_port}"
-}
-
-output "ui_type" {
-  description = "Typ der verwendeten UI"
-  value       = var.ui_type
-}
-
-output "container_name" {
-  description = "Name des Container"
-  value       = var.ui_type == "openwebui" ? (length(docker_container.open_webui) > 0 ? docker_container.open_webui[0].name : "") : (length(docker_container.huggingchat) > 0 ? docker_container.huggingchat[0].name : "")
-}
