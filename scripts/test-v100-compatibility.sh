@@ -86,7 +86,7 @@ spec:
         - "--max-input-length=1024"
         - "--max-total-tokens=2048"
         - "--max-batch-prefill-tokens=2048"
-        - "--gpu-memory-utilization=0.8"
+        - "--cuda-memory-fraction=0.8"
         env:
         - name: CUDA_VISIBLE_DEVICES
           value: "0"
@@ -205,7 +205,7 @@ echo -e "\n${BLUE}7. Empfehlungen für V100-Konfiguration${NC}"
 echo -e "${GREEN}Basierend auf den Testergebnissen empfehlen wir:${NC}"
 echo -e "1. Verwenden Sie kleinere Modelle (2B-7B) mit ${YELLOW}AWQ-Quantisierung${NC} auf V100-GPUs"
 echo -e "2. Beschränken Sie Kontextlängen auf ${YELLOW}MAX_INPUT_LENGTH=2048${NC} und ${YELLOW}MAX_TOTAL_TOKENS=4096${NC}"
-echo -e "3. Setzen Sie ${YELLOW}GPU_MEMORY_UTILIZATION=0.85${NC} für bessere Stabilität"
+echo -e "3. Setzen Sie ${YELLOW}CUDA_MEMORY_FRACTION=0.85${NC} für bessere Stabilität"
 echo -e "4. Für Multi-GPU-Setups verwenden Sie ${YELLOW}DSHM_SIZE=8Gi${NC} oder höher"
 echo -e "5. Nutzen Sie das optimierte Deployment-Skript: ${YELLOW}./scripts/deploy-tgi-v100.sh${NC}"
 

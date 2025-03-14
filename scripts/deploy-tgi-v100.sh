@@ -93,8 +93,18 @@ cat >> "$TMP_FILE" << EOF
         args:
         - "--model-id=${MODEL_TO_USE}"
         - "--port=8000"
+EOF
+
+# Entweder dtype oder quantize setzen, aber nicht beides
+if [ -n "$QUANTIZATION" ]; then
+    cat >> "$TMP_FILE" << EOF
+        - "--quantize=${QUANTIZATION}"
+EOF
+else
+    cat >> "$TMP_FILE" << EOF
         - "--dtype=float16"
 EOF
+fi
 
 # Multi-GPU Parameter - EXPLIZIT separater Eintrag
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
@@ -120,19 +130,6 @@ EOF
 cat >> "$TMP_FILE" << EOF
         - "--max-concurrent-requests=8"
 EOF
-
-# Quantisierungsoptionen
-if [ -n "$QUANTIZATION" ]; then
-    if [ "$QUANTIZATION" == "awq" ]; then
-        cat >> "$TMP_FILE" << EOF
-        - "--quantize=awq"
-EOF
-    elif [ "$QUANTIZATION" == "gptq" ]; then
-        cat >> "$TMP_FILE" << EOF
-        - "--quantize=gptq"
-EOF
-    fi
-fi
 
 # Umgebungsvariablen
 cat >> "$TMP_FILE" << EOF
@@ -227,6 +224,11 @@ EOF
 echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendetes Modell: $MODEL_TO_USE"
 echo "Verwendete GPU-Konfiguration: $GPU_TYPE mit $GPU_COUNT GPUs"
+if [ -n "$QUANTIZATION" ]; then
+    echo "Quantisierung aktiviert: $QUANTIZATION"
+else
+    echo "Datentyp gesetzt auf: float16"
+fi
 echo "Speicher Konfiguration: MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH}, MAX_TOTAL_TOKENS=${MAX_TOTAL_TOKENS}"
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
