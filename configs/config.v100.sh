@@ -35,7 +35,13 @@ export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Sehr kleines Modell zu
 export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated Models
 
 # Memory-Optimierungen für V100
+# WICHTIG: Wählen Sie ENTWEDER Quantisierung ODER dtype, aber nicht beides gleichzeitig!
+# Option 1: Quantisierung (empfohlen für größere Modelle)
 export QUANTIZATION="awq"  # Aktiviere AWQ-Quantisierung für bessere Memory-Effizienz
+# Option 2: Setzen Sie dtype (nutzen Sie dies nur wenn keine Quantisierung aktiv ist)
+# export QUANTIZATION=""     # Dies muss leer sein, wenn dtype verwendet werden soll!
+
+# Gemeinsame Performance-Parameter
 export CUDA_MEMORY_FRACTION=0.85  # Korrigierter Parameter für TGI 1.2.0
 export MAX_INPUT_LENGTH=2048  # Reduzierte maximale Eingabelänge für V100
 export MAX_TOTAL_TOKENS=4096  # Reduzierte Gesamtlänge (Eingabe + Ausgabe)
