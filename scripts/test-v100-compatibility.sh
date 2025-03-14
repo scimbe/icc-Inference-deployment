@@ -82,7 +82,7 @@ spec:
         args:
         - "--model-id=TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         - "--port=8000"
-        - "--dtype=float16"
+        - "--dtype=float16"  # Wir verwenden kein quantize, um Konflikte zu vermeiden
         - "--max-input-length=1024"
         - "--max-total-tokens=2048"
         - "--max-batch-prefill-tokens=2048"
@@ -203,11 +203,12 @@ echo "$MEMORY_USAGE"
 
 echo -e "\n${BLUE}7. Empfehlungen für V100-Konfiguration${NC}"
 echo -e "${GREEN}Basierend auf den Testergebnissen empfehlen wir:${NC}"
-echo -e "1. Verwenden Sie kleinere Modelle (2B-7B) mit ${YELLOW}AWQ-Quantisierung${NC} auf V100-GPUs"
-echo -e "2. Beschränken Sie Kontextlängen auf ${YELLOW}MAX_INPUT_LENGTH=2048${NC} und ${YELLOW}MAX_TOTAL_TOKENS=4096${NC}"
-echo -e "3. Setzen Sie ${YELLOW}CUDA_MEMORY_FRACTION=0.85${NC} für bessere Stabilität"
-echo -e "4. Für Multi-GPU-Setups verwenden Sie ${YELLOW}DSHM_SIZE=8Gi${NC} oder höher"
-echo -e "5. Nutzen Sie das optimierte Deployment-Skript: ${YELLOW}./scripts/deploy-tgi-v100.sh${NC}"
+echo -e "1. ${YELLOW}Wichtig: Verwenden Sie entweder --dtype ODER --quantize, aber nicht beides gleichzeitig!${NC}"
+echo -e "2. Verwenden Sie kleinere Modelle (2B-7B) mit ${YELLOW}AWQ-Quantisierung${NC} auf V100-GPUs"
+echo -e "3. Beschränken Sie Kontextlängen auf ${YELLOW}MAX_INPUT_LENGTH=2048${NC} und ${YELLOW}MAX_TOTAL_TOKENS=4096${NC}"
+echo -e "4. Setzen Sie ${YELLOW}CUDA_MEMORY_FRACTION=0.85${NC} für bessere Stabilität"
+echo -e "5. Für Multi-GPU-Setups verwenden Sie ${YELLOW}DSHM_SIZE=8Gi${NC} oder höher"
+echo -e "6. Nutzen Sie das optimierte Deployment-Skript: ${YELLOW}./scripts/deploy-tgi-v100.sh${NC}"
 
 echo -e "\n${BLUE}8. Bereinige Test-Ressourcen${NC}"
 read -p "Möchten Sie das Test-Deployment jetzt entfernen? (J/n) " -n 1 -r
