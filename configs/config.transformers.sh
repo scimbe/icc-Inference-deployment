@@ -43,7 +43,12 @@ export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated M
 
 # Transformers-Konfiguration
 export ENABLE_TRANSFORMERS=true  # Aktiviert die Transformers-Integration
-export TRUST_REMOTE_CODE=true    # Ermöglicht die Ausführung von benutzerdefiniertem Modellcode
+
+# HINWEIS: trust-remote-code ist ein Flag, kein Parameter mit Wert
+# Wenn auf true, wird das Flag "--trust-remote-code" gesetzt
+# Wenn auf false, wird das Flag nicht gesetzt
+export TRUST_REMOTE_CODE=true    # Aktiviert das Flag --trust-remote-code
+
 export TOKENIZERS_PARALLELISM=true  # Beschleunigt die Tokenisierung
 export TRANSFORMERS_CACHE="/data/transformers-cache"  # Cache-Pfad für Transformers
 export MAX_BATCH_SIZE=8  # Maximale Batch-Größe für Inferenz

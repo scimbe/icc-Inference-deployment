@@ -146,8 +146,15 @@ fi
 
 # Transformers-spezifische Parameter hinzufügen, wenn aktiviert
 if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
+    # Flag für trust-remote-code, ohne Wert
+    if [ "${TRUST_REMOTE_CODE:-true}" == "true" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - "--trust-remote-code"
+EOF
+    fi
+    
+    # Max Batch Size mit Wert
     cat >> "$TMP_FILE" << EOF
-        - "--trust-remote-code=${TRUST_REMOTE_CODE:-true}"
         - "--max-batch-size=${MAX_BATCH_SIZE:-8}"
 EOF
 
@@ -307,7 +314,11 @@ echo "Rollout-Strategie: Recreate (100% Ressourcennutzung)"
 # Zeige Transformers-Status an
 if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
     echo "Transformers-Integration: AKTIVIERT"
-    echo "  - Trust Remote Code: ${TRUST_REMOTE_CODE:-true}"
+    if [ "${TRUST_REMOTE_CODE:-true}" == "true" ]; then
+        echo "  - Trust Remote Code: Aktiviert (Flag ohne Wert)"
+    else
+        echo "  - Trust Remote Code: Deaktiviert"
+    fi
     echo "  - Tokenizers Parallelism: ${TOKENIZERS_PARALLELISM:-true}"
     echo "  - Max Batch Size: ${MAX_BATCH_SIZE:-8}"
     if [ -n "$PEFT_ADAPTER_ID" ]; then
