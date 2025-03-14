@@ -212,7 +212,7 @@ metadata:
 spec:
   ports:
   - name: http
-    port: 3333
+    port: 8000
     protocol: TCP
     targetPort: 8000
   selector:
@@ -244,14 +244,14 @@ echo "Warte auf das TGI Deployment..."
 kubectl -n "$NAMESPACE" rollout status deployment/"$TGI_DEPLOYMENT_NAME" --timeout=300s
 
 echo "TGI Deployment gestartet."
-echo "Service erreichbar über: $TGI_SERVICE_NAME:3333"
+echo "Service erreichbar über: $TGI_SERVICE_NAME:8000"
 echo
 echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
 echo "HINWEIS: TGI bietet eine OpenAI-kompatible API."
-echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
+echo "HINWEIS: TGI Port 8000 wird direkt gemappt."
 echo "HINWEIS: Speziell für V100 GPUs mit ${GPU_COUNT} GPU(s) optimiert"
 echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
 echo
 echo "Für den Zugriff auf den Service führen Sie aus:"
-echo "kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 3333:3333"
+echo "kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 8000:8000"

@@ -52,10 +52,10 @@ echo "Um auf TGI und die WebUI zuzugreifen, führen Sie aus:"
 echo "  ./scripts/port-forward.sh"
 echo
 echo "Alternativ können Sie auf die einzelnen Dienste separat zugreifen:"
-echo "  kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 3333:3333   # TGI API"
-echo "  kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 8080:8080  # Open WebUI"
-echo -e "\nÖffnen Sie dann http://localhost:8080 in Ihrem Browser für die WebUI"
-echo "Die TGI API ist unter http://localhost:3333 erreichbar"
+echo "  kubectl -n $NAMESPACE port-forward svc/$TGI_SERVICE_NAME 8000:8000   # TGI API"
+echo "  kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 3000:3000  # Open WebUI"
+echo -e "\nÖffnen Sie dann http://localhost:3000 in Ihrem Browser für die WebUI"
+echo "Die TGI API ist unter http://localhost:8000 erreichbar"
 
 if [ "$CREATE_INGRESS" == "true" ]; then
     echo -e "\nIngress wird erstellt für: $DOMAIN_NAME"

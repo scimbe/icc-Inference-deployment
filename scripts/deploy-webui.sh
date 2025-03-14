@@ -53,13 +53,13 @@ spec:
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: OPENAI_API_BASE_URL
-              value: "http://$TGI_SERVICE_NAME:3333/v1"$WEBUI_API_KEY_ENV
+              value: "http://$TGI_SERVICE_NAME:8000/v1"$WEBUI_API_KEY_ENV
             - name: ENABLE_RAG_WEB_SEARCH
               value: "false"
             - name: ENABLE_IMAGE_GENERATION
               value: "false"
           ports:
-            - containerPort: 8080
+            - containerPort: 3000
               protocol: TCP
           resources:
             limits:
@@ -82,9 +82,9 @@ metadata:
 spec:
   ports:
     - name: http
-      port: 8080
+      port: 3000
       protocol: TCP
-      targetPort: 8080
+      targetPort: 3000
   selector:
     service: tgi-webui
   type: ClusterIP
@@ -106,8 +106,8 @@ echo "Warte auf das WebUI Deployment..."
 kubectl -n "$NAMESPACE" rollout status deployment/"$WEBUI_DEPLOYMENT_NAME" --timeout=300s
 
 echo "Open WebUI Deployment erfolgreich."
-echo "Service erreichbar über: $WEBUI_SERVICE_NAME:8080"
+echo "Service erreichbar über: $WEBUI_SERVICE_NAME:3000"
 echo
 echo "HINWEIS: Die WebUI verbindet sich automatisch mit dem TGI-Server über die OpenAI-kompatible API."
 echo "Überwachen Sie den Status mit: kubectl -n $NAMESPACE get pods"
-echo "Für direkten Zugriff führen Sie aus: kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 8080:8080"
+echo "Für direkten Zugriff führen Sie aus: kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 3000:3000"

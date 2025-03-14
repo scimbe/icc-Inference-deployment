@@ -29,18 +29,18 @@ if ! kubectl -n "$NAMESPACE" get deployment "$WEBUI_DEPLOYMENT_NAME" &> /dev/nul
 fi
 
 # Starte Port-Forwarding in separaten Prozessen
-echo "Starte Port-Forwarding für TGI auf Port 3333..."
-kubectl -n "$NAMESPACE" port-forward svc/"$TGI_SERVICE_NAME" 3333:3333 &
+echo "Starte Port-Forwarding für TGI auf Port 8000..."
+kubectl -n "$NAMESPACE" port-forward svc/"$TGI_SERVICE_NAME" 8000:8000 &
 TGI_PID=$!
 
-echo "Starte Port-Forwarding für WebUI auf Port 8080..."
+echo "Starte Port-Forwarding für WebUI auf Port 3000..."
 export KUBECTL_PORT_FORWARD_WEBSOCKETS="true"
-kubectl -n "$NAMESPACE" port-forward svc/"$WEBUI_SERVICE_NAME" 8080:8080 &
+kubectl -n "$NAMESPACE" port-forward svc/"$WEBUI_SERVICE_NAME" 3000:3000 &
 WEBUI_PID=$!
 
 echo "Port-Forwarding gestartet."
-echo "TGI API: http://localhost:3333"
-echo "WebUI: http://localhost:8080"
+echo "TGI API: http://localhost:8000"
+echo "WebUI: http://localhost:3000"
 echo "Drücken Sie CTRL+C, um das Port-Forwarding zu beenden."
 
 # Funktion zum Aufräumen beim Beenden
