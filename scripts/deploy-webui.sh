@@ -38,6 +38,8 @@ metadata:
     service: tgi-webui
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       service: tgi-webui
@@ -92,6 +94,7 @@ EOF
 
 # Anwenden der Konfiguration
 echo "Deploying Open WebUI to namespace $NAMESPACE..."
+echo "Rollout-Strategie: Recreate (100% Ressourcennutzung)"
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
