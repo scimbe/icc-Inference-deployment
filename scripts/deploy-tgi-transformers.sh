@@ -121,14 +121,17 @@ EOF
     fi
 fi
 
-# Speicher-Management für A100
-if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
-    cat >> "$TMP_FILE" << EOF
-        - "--max-concurrent-requests=16"
-        - "--max-input-length=${MAX_INPUT_LENGTH:-4096}"
-        - "--max-total-tokens=${MAX_TOTAL_TOKENS:-8192}"
+# WICHTIG: Deaktiviere benutzerdefinierte CUDA-Kernel für bessere Kompatibilität
+cat >> "$TMP_FILE" << EOF
+        - "--disable-custom-kernels"
 EOF
-fi
+
+# Reduzierte Token-Limits für bessere Kompatibilität
+cat >> "$TMP_FILE" << EOF
+        - "--max-input-length=${MAX_INPUT_LENGTH:-1024}"
+        - "--max-total-tokens=${MAX_TOTAL_TOKENS:-2048}"
+        - "--max-batch-prefill-tokens=2048"
+EOF
 
 # Multi-GPU Parameter
 if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
@@ -153,9 +156,9 @@ if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
 EOF
     fi
     
-    # Max Batch Size mit Wert
+    # Max Batch Size mit Wert - reduziert für bessere Kompatibilität
     cat >> "$TMP_FILE" << EOF
-        - "--max-batch-size=${MAX_BATCH_SIZE:-8}"
+        - "--max-batch-size=${MAX_BATCH_SIZE:-4}"
 EOF
 
     # PEFT-Adapter hinzufügen, wenn konfiguriert
@@ -171,11 +174,23 @@ cat >> "$TMP_FILE" << EOF
         env:
 EOF
 
-# GPU-spezifische Umgebungsvariablen
+# GPU-spezifische Umgebungsvariablen mit CUDA-Kompatibilität
 if [ "$USE_GPU" == "true" ]; then
     cat >> "$TMP_FILE" << EOF
         - name: CUDA_VISIBLE_DEVICES
           value: "${CUDA_DEVICES}"
+        - name: CUDA_LAUNCH_BLOCKING
+          value: "1"
+        - name: NCCL_DEBUG
+          value: "INFO"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "max_split_size_mb:128"
+EOF
+
+    # Deaktiviere Flash Attention für alle GPU-Typen
+    cat >> "$TMP_FILE" << EOF
+        - name: TGI_DISABLE_FLASH_ATTENTION
+          value: "true"
 EOF
 
     # A100-spezifische Umgebungsvariablen
@@ -185,10 +200,6 @@ EOF
           value: "1"
         - name: NCCL_IB_DISABLE
           value: "1"
-        - name: NCCL_DEBUG
-          value: "INFO"
-        - name: TGI_DISABLE_FLASH_ATTENTION
-          value: "${DISABLE_FLASH_ATTENTION:-false}"
 EOF
     fi
 fi
@@ -199,7 +210,7 @@ if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
         - name: TRANSFORMERS_CACHE
           value: "${TRANSFORMERS_CACHE:-/data/transformers-cache}"
         - name: TOKENIZERS_PARALLELISM
-          value: "${TOKENIZERS_PARALLELISM:-true}"
+          value: "false"
 EOF
 
     # Optionale zusätzliche Transformers-Konfigurationen
@@ -239,14 +250,12 @@ if [ "$USE_GPU" == "true" ]; then
 EOF
 fi
 
-# Speicherressourcen anpassen für A100
-if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
-    cat >> "$TMP_FILE" << EOF
+# Ressourcenanforderungen für alle GPU-Typen
+cat >> "$TMP_FILE" << EOF
           requests:
-            memory: "16Gi"
-            cpu: "2"
+            memory: "4Gi"
+            cpu: "1"
 EOF
-fi
 
 # Volumes und VolumeMounts
 cat >> "$TMP_FILE" << EOF
@@ -273,7 +282,7 @@ cat >> "$TMP_FILE" << EOF
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: ${DSHM_SIZE:-8Gi}
+          sizeLimit: ${DSHM_SIZE:-4Gi}
 EOF
 
 # Transformers-Cache Volume hinzufügen, wenn aktiviert
@@ -310,6 +319,7 @@ echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendetes Modell: $MODEL_TO_USE"
 echo "Verwendete GPU-Konfiguration: $GPU_TYPE mit $GPU_COUNT GPUs"
 echo "Rollout-Strategie: Recreate (100% Ressourcennutzung)"
+echo "CUDA-Kompatibilitätsmodus: AKTIVIERT (optimierte Kernel deaktiviert)"
 
 # Zeige Transformers-Status an
 if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
@@ -319,8 +329,8 @@ if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
     else
         echo "  - Trust Remote Code: Deaktiviert"
     fi
-    echo "  - Tokenizers Parallelism: ${TOKENIZERS_PARALLELISM:-true}"
-    echo "  - Max Batch Size: ${MAX_BATCH_SIZE:-8}"
+    echo "  - Tokenizers Parallelism: Deaktiviert für bessere Kompatibilität"
+    echo "  - Max Batch Size: ${MAX_BATCH_SIZE:-4}"
     if [ -n "$PEFT_ADAPTER_ID" ]; then
         echo "  - PEFT Adapter: $PEFT_ADAPTER_ID"
     fi
@@ -355,6 +365,9 @@ echo
 echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
 echo "HINWEIS: TGI bietet eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird direkt gemappt."
+echo "HINWEIS: CUDA-Kompatibilitätsmodus ist aktiviert (optimierte Kernel deaktiviert)"
+echo "HINWEIS: Flash Attention ist deaktiviert für bessere Kompatibilität"
+echo "HINWEIS: CUDA_LAUNCH_BLOCKING=1 ist aktiviert für bessere Fehlerdiagnose"
 
 if [ "${ENABLE_TRANSFORMERS:-false}" == "true" ]; then
     echo "HINWEIS: Transformers-Integration ist aktiviert für erweiterte Funktionalität."
