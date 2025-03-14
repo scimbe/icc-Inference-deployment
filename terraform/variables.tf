@@ -66,12 +66,6 @@ variable "tgi_api_key" {
   sensitive   = true
 }
 
-variable "enable_gpu" {
-  description = "Whether to enable GPU support for TGI"
-  type        = bool
-  default     = false
-}
-
 variable "data_volume_path" {
   description = "Path on host to store WebUI data"
   type        = string
