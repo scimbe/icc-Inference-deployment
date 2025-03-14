@@ -68,7 +68,7 @@ spec:
           operator: "Exists"
           effect: "NoSchedule"
       containers:
-        - image: ghcr.io/huggingface/text-generation-inference:1.2.0
+        - image: ghcr.io/huggingface/text-generation-inference:latest
           name: tgi
           command: ["text-generation-launcher"]
           args:

@@ -88,7 +88,7 @@ fi
 cat >> "$TMP_FILE" << EOF
       containers:
       - name: tgi
-        image: ghcr.io/huggingface/text-generation-inference:1.2.0
+        image: ghcr.io/huggingface/text-generation-inference:latest
         imagePullPolicy: IfNotPresent
         command: 
         - "text-generation-launcher"
@@ -185,7 +185,7 @@ fi
 # Speicherressourcen anpassen für V100
 cat >> "$TMP_FILE" << EOF
           requests:
-            memory: "4Gi"
+            memory: "8Gi"
             cpu: "2"
 EOF
 

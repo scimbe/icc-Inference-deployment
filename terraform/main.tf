@@ -88,13 +88,29 @@ resource "docker_container" "open_webui" {
   }
 }
 
+
+resource "local_file" "env_local" {
+  filename = "${path.module}/.env.local"
+  content  = jsonencode([
+    {
+      name = var.model_name,
+      endpoints = [
+        {
+          type = "tgi",
+          url  = "http://inference-server:8000"
+        }
+      ]
+    }
+  ])
+}
+
+
 # HuggingChat Container - wenn als UI-Typ ausgewählt
 resource "docker_container" "huggingchat" {
   count = var.ui_type == "huggingchat" ? 1 : 0
   
   name  = "${var.webui_container_name}-huggingchat"
   image = docker_image.huggingchat[0].image_id
-  
   networks_advanced {
     name = docker_network.llm_network.name
   }
@@ -102,13 +118,13 @@ resource "docker_container" "huggingchat" {
   # TGI-Server läuft bereits auf host.docker.internal:8000
   # MongoDB-Verbindung (läuft im selben Docker-Netzwerk)
   env = [
+    "MODELS=${local_file.env_local.content}",
     "HF_API_URL=http://host.docker.internal:8000/v1",
     "DEFAULT_MODEL=${var.model_name}",
-    "HF_ACCESS_TOKEN=${var.huggingface_token}",
+    "HF_TOKEN=${var.huggingface_token}",
     "ENABLE_EXPERIMENTAL_FEATURES=true",
     "ENABLE_THEMING=true",
-    "MONGODB_URL=mongodb://mongodb-for-huggingchat:27017/huggingchat",
-    "endpointUrl=http://host.docker.internal:8000"
+    "MONGODB_URL=mongodb://mongodb-for-huggingchat:27017/huggingchat"
   ]
 
   ports {
