@@ -94,28 +94,9 @@ cat >> "$TMP_FILE" << EOF
         - "--port=8000"
 EOF
 
-# Mixed Precision basierend auf GPU-Typ
-if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
-    cat >> "$TMP_FILE" << EOF
-        - "--dtype=bfloat16"
-EOF
-else
-    cat >> "$TMP_FILE" << EOF
-        - "--dtype=float16"
-EOF
-fi
-
-# Speicher-Management für A100
-if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
-    cat >> "$TMP_FILE" << EOF
-        - "--max-concurrent-requests=16"
-        - "--max-input-length=${MAX_INPUT_LENGTH:-4096}"
-        - "--max-total-tokens=${MAX_TOTAL_TOKENS:-8192}"
-EOF
-fi
-
-# Quantisierungsoptionen
+# Entweder dtype oder quantize setzen, aber nicht beides
 if [ -n "$QUANTIZATION" ]; then
+    # Quantisierungsoptionen
     if [ "$QUANTIZATION" == "awq" ]; then
         cat >> "$TMP_FILE" << EOF
         - "--quantize=awq"
@@ -125,6 +106,26 @@ EOF
         - "--quantize=gptq"
 EOF
     fi
+else
+    # Mixed Precision basierend auf GPU-Typ wenn keine Quantisierung gesetzt ist
+    if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - "--dtype=bfloat16"
+EOF
+    else
+        cat >> "$TMP_FILE" << EOF
+        - "--dtype=float16"
+EOF
+    fi
+fi
+
+# Speicher-Management für A100
+if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+    cat >> "$TMP_FILE" << EOF
+        - "--max-concurrent-requests=16"
+        - "--max-input-length=${MAX_INPUT_LENGTH:-4096}"
+        - "--max-total-tokens=${MAX_TOTAL_TOKENS:-8192}"
+EOF
 fi
 
 # Multi-GPU Parameter
@@ -242,6 +243,15 @@ EOF
 echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendetes Modell: $MODEL_TO_USE"
 echo "Verwendete GPU-Konfiguration: $GPU_TYPE mit $GPU_COUNT GPUs"
+if [ -n "$QUANTIZATION" ]; then
+    echo "Quantisierung aktiviert: $QUANTIZATION"
+else
+    if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+        echo "Datentyp gesetzt auf: bfloat16"
+    else
+        echo "Datentyp gesetzt auf: float16"
+    fi
+fi
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
@@ -261,10 +271,14 @@ echo
 echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
 echo "HINWEIS: TGI bietet eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird direkt gemappt."
-if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
-    echo "HINWEIS: Optimiert für Tesla A100 GPUs mit bfloat16 Präzision."
+if [ -n "$QUANTIZATION" ]; then
+    echo "HINWEIS: Verwendet $QUANTIZATION Quantisierung."
 else
-    echo "HINWEIS: Verwendet float16 Präzision für Standard-GPUs."
+    if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+        echo "HINWEIS: Optimiert für Tesla A100 GPUs mit bfloat16 Präzision."
+    else
+        echo "HINWEIS: Verwendet float16 Präzision für Standard-GPUs."
+    fi
 fi
 echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
