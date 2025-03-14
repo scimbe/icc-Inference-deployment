@@ -62,6 +62,8 @@ metadata:
     app: llm-server
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: llm-server
@@ -224,6 +226,7 @@ EOF
 echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendetes Modell: $MODEL_TO_USE"
 echo "Verwendete GPU-Konfiguration: $GPU_TYPE mit $GPU_COUNT GPUs"
+echo "Rollout-Strategie: Recreate (100% Ressourcennutzung)"
 if [ -n "$QUANTIZATION" ]; then
     echo "Quantisierung aktiviert: $QUANTIZATION"
 else
