@@ -23,7 +23,7 @@ export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, kann bis zu 4 sein)
 # Andernfalls wählen Sie ein frei zugängliches Modell wie unten vorgeschlagen
 
 # Für V100 empfohlene Modelle:
-export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Sehr kleines Modell zum Testen
+export MODEL_NAME="NousResearch/Hermes-3-Llama-3.1-8B"  # Sehr kleines Modell zum Testen
 # export MODEL_NAME="microsoft/phi-2"                     # Kleineres Modell (2.7B)
 # export MODEL_NAME="google/gemma-2b-it"                  # Sehr kleines Modell
 # export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  # Frei zugängliches Modell
@@ -37,7 +37,7 @@ export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated M
 # Memory-Optimierungen für V100
 # WICHTIG: Wählen Sie ENTWEDER Quantisierung ODER dtype, aber nicht beides gleichzeitig!
 # Option 1: Quantisierung (empfohlen für größere Modelle)
-export QUANTIZATION="awq"  # Aktiviere AWQ-Quantisierung für bessere Memory-Effizienz
+# export QUANTIZATION="awq"  # Aktiviere AWQ-Quantisierung für bessere Memory-Effizienz
 # Option 2: Setzen Sie dtype (nutzen Sie dies nur wenn keine Quantisierung aktiv ist)
 # export QUANTIZATION=""     # Dies muss leer sein, wenn dtype verwendet werden soll!
 
