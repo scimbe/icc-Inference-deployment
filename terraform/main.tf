@@ -107,7 +107,8 @@ resource "docker_container" "huggingchat" {
     "HF_ACCESS_TOKEN=${var.huggingface_token}",
     "ENABLE_EXPERIMENTAL_FEATURES=true",
     "ENABLE_THEMING=true",
-    "MONGODB_URL=mongodb://mongodb-for-huggingchat:27017/huggingchat"
+    "MONGODB_URL=mongodb://mongodb-for-huggingchat:27017/huggingchat",
+    "endpointUrl=http://host.docker.internal:8000"
   ]
 
   ports {
