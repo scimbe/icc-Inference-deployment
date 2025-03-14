@@ -94,10 +94,25 @@ cat >> "$TMP_FILE" << EOF
         - "--port=8000"
 EOF
 
-# Mixed Precision
-cat >> "$TMP_FILE" << EOF
+# Mixed Precision basierend auf GPU-Typ
+if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+    cat >> "$TMP_FILE" << EOF
+        - "--dtype=bfloat16"
+EOF
+else
+    cat >> "$TMP_FILE" << EOF
         - "--dtype=float16"
 EOF
+fi
+
+# Speicher-Management für A100
+if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+    cat >> "$TMP_FILE" << EOF
+        - "--max-concurrent-requests=16"
+        - "--max-input-length=${MAX_INPUT_LENGTH:-4096}"
+        - "--max-total-tokens=${MAX_TOTAL_TOKENS:-8192}"
+EOF
+fi
 
 # Quantisierungsoptionen
 if [ -n "$QUANTIZATION" ]; then
@@ -117,6 +132,13 @@ if [ "$USE_GPU" == "true" ] && [ "$GPU_COUNT" -gt 1 ]; then
     cat >> "$TMP_FILE" << EOF
         - "--sharded=true"
 EOF
+    
+    # Speziell für A100 bei Multi-GPU
+    if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - "--num-shard=${GPU_COUNT}"
+EOF
+    fi
 fi
 
 # Umgebungsvariablen
@@ -130,6 +152,20 @@ if [ "$USE_GPU" == "true" ]; then
         - name: CUDA_VISIBLE_DEVICES
           value: "${CUDA_DEVICES}"
 EOF
+
+    # A100-spezifische Umgebungsvariablen
+    if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+        cat >> "$TMP_FILE" << EOF
+        - name: NCCL_P2P_DISABLE
+          value: "1"
+        - name: NCCL_IB_DISABLE
+          value: "1"
+        - name: NCCL_DEBUG
+          value: "INFO"
+        - name: TGI_DISABLE_FLASH_ATTENTION
+          value: "${DISABLE_FLASH_ATTENTION:-false}"
+EOF
+    fi
 fi
 
 # HuggingFace Token wenn vorhanden - jetzt korrekt gesetzt
@@ -160,6 +196,15 @@ if [ "$USE_GPU" == "true" ]; then
 EOF
 fi
 
+# Speicherressourcen anpassen für A100
+if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+    cat >> "$TMP_FILE" << EOF
+          requests:
+            memory: "16Gi"
+            cpu: "2"
+EOF
+fi
+
 # Rest des YAML
 cat >> "$TMP_FILE" << EOF
         volumeMounts:
@@ -173,7 +218,7 @@ cat >> "$TMP_FILE" << EOF
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: 1Gi
+          sizeLimit: ${DSHM_SIZE:-8Gi}
 ---
 apiVersion: v1
 kind: Service
@@ -196,6 +241,7 @@ EOF
 # Anwenden der Konfiguration
 echo "Deploying Text Generation Inference zu Namespace $NAMESPACE..."
 echo "Verwendetes Modell: $MODEL_TO_USE"
+echo "Verwendete GPU-Konfiguration: $GPU_TYPE mit $GPU_COUNT GPUs"
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
 echo "---------------------------------"
@@ -215,7 +261,11 @@ echo
 echo "HINWEIS: Verwendetes Modell: $MODEL_TO_USE"
 echo "HINWEIS: TGI bietet eine OpenAI-kompatible API."
 echo "HINWEIS: TGI Port 8000 wird auf Service-Port 3333 gemappt."
-echo "HINWEIS: Mixed Precision (float16) ist aktiviert, um Speicherverbrauch zu reduzieren."
+if [ "$GPU_TYPE" == "gpu-tesla-a100" ]; then
+    echo "HINWEIS: Optimiert für Tesla A100 GPUs mit bfloat16 Präzision."
+else
+    echo "HINWEIS: Verwendet float16 Präzision für Standard-GPUs."
+fi
 echo "HINWEIS: TGI muss das Modell jetzt herunterladen, was einige Zeit dauern kann."
 echo "Überwachen Sie den Fortschritt mit: kubectl -n $NAMESPACE logs -f deployment/$TGI_DEPLOYMENT_NAME"
 echo

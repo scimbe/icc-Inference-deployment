@@ -15,8 +15,8 @@ export WEBUI_SERVICE_NAME="tgi-webui"
 
 # GPU-Konfiguration
 export USE_GPU=true  # Auf false setzen, wenn keine GPU benötigt wird
-export GPU_TYPE="gpu-tesla-v100"  # Oder "gpu-tesla-v100s" je nach Verfügbarkeit
-export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, multi-GPU kann Probleme verursachen)
+export GPU_TYPE="gpu-tesla-v100"  # Oder "gpu-tesla-v100s" oder "gpu-tesla-a100" je nach Verfügbarkeit
+export GPU_COUNT=1  # Anzahl der GPUs (üblicherweise 1, kann bis zu 4 sein)
 
 # TGI-Konfiguration
 # WICHTIG: Falls Sie das Llama-2-Modell verwenden möchten, benötigen Sie ein HuggingFace-Token!
@@ -41,16 +41,21 @@ export MODEL_NAME="microsoft/phi-2"
 # des Modells auf der Modellseite
 export HUGGINGFACE_TOKEN=""  # Ihr HuggingFace-Token hier einfügen für gated Models
 
+# Modell-Parameter
 export QUANTIZATION=""  # Optional: "awq" oder "gptq" für quantisierte Modelle
 export GPU_MEMORY_UTILIZATION=0.9  # Anteil des GPU-Speichers, der genutzt werden soll (0.0-1.0)
-export MAX_MODEL_LEN=2048  # Maximale Kontext-Länge ... 8192 max
-export DTYPE="float16"  # Optional: "float16", "bfloat16" oder "float32"
+export MAX_INPUT_LENGTH=4096  # Maximale Eingabe-Länge
+export MAX_TOTAL_TOKENS=8192  # Maximale Gesamtlänge (Eingabe + Ausgabe)
+
+# Spezielle Parameter für Tesla A100 GPUs
+export DISABLE_FLASH_ATTENTION=false # Auf true setzen, wenn Flash Attention Probleme verursacht
+export DSHM_SIZE="8Gi"  # Shared Memory Größe, erhöhe bei Multi-GPU Setups (16Gi für A100)
 
 # API-Konfiguration
 export TGI_API_KEY="changeme123"  # API-Schlüssel für TGI
 
 # Ressourcenlimits
-export MEMORY_LIMIT="16Gi"  # Speicherlimit
+export MEMORY_LIMIT="32Gi"  # Speicherlimit, erhöhe auf 64Gi für A100 mit großen Modellen
 export CPU_LIMIT="4"  # CPU-Limit
 
 # Zugriffskonfiguration
