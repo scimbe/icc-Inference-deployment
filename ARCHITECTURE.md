@@ -1,6 +1,6 @@
-# ICC-vLLM-Deployment Architekturübersicht
+# ICC-TGI-Deployment Architekturübersicht
 
-Diese Dokumentation beschreibt die Architektur des ICC-vLLM-Deployment-Projekts, das die Bereitstellung von vLLM mit Multi-GPU-Unterstützung auf der Informatik Compute Cloud (ICC) der HAW Hamburg ermöglicht.
+Diese Dokumentation beschreibt die Architektur des ICC-TGI-Deployment-Projekts, das die Bereitstellung von Text Generation Inference (TGI) mit Multi-GPU-Unterstützung auf der Informatik Compute Cloud (ICC) der HAW Hamburg ermöglicht.
 
 ## Architekturdiagramm
 
@@ -27,9 +27,9 @@ flowchart TD
     %% ICC Kubernetes Cluster
     subgraph k8s_cluster[ICC Kubernetes Cluster]
         subgraph namespace[Benutzer-Namespace w*-default]
-            subgraph vllm_deploy[vLLM-Deployment]
-                vllm_pod[vLLM-Pod: Führt Inferenz aus]
-                vllm_svc[vLLM-Service: OpenAI-API]
+            subgraph tgi_deploy[TGI-Deployment]
+                tgi_pod[TGI-Pod: Führt Inferenz aus]
+                tgi_svc[TGI-Service: OpenAI-API]
                 model_cache[HuggingFace Cache: Modellspeicher]
             end
 
@@ -60,18 +60,18 @@ flowchart TD
 
     %% Lokale Entwicklungsumgebung
     subgraph local_dev[Lokale Entwicklungsumgebung]
-        git_repo[Git Repository: icc-vllm-deployment]
+        git_repo[Git Repository: icc-tgi-deployment]
         config[Konfigurationsdateien: config.sh]
         port_forward[Port-Forwarding: Lokaler Zugriff]
     end
 
     %% Anwendungskomponenten
     subgraph components[Anwendungskomponenten]
-        vllm_engine[vLLM Engine: LLM-Inferenz]
+        tgi_engine[TGI Engine: LLM-Inferenz]
         openai_api[OpenAI-kompatible API: REST-Schnittstelle]
         open_webui[Open WebUI: Benutzerfreundliche Oberfläche]
         llm_models[LLM-Modelle: Llama, Mistral, Gemma, etc.]
-        tensor_parallel[Tensor Parallelism: Multi-GPU-Nutzung]
+        tensor_parallel[Sharded Mode: Multi-GPU-Nutzung]
     end
 
     %% Beziehungen - Nutzer zu System
@@ -89,27 +89,27 @@ flowchart TD
     config -->|Konfiguriert| k8s_cli
 
     %% Deploymentprozesse
-    k8s_cli -->|Erstellt| vllm_deploy
+    k8s_cli -->|Erstellt| tgi_deploy
     k8s_cli -->|Erstellt| webui_deploy
-    vllm_deploy -->|Nutzt| gpu_resources
+    tgi_deploy -->|Nutzt| gpu_resources
     gpu_toleration -->|Erlaubt Scheduling auf| multi_gpu
-    vllm_pod -->|Hosted auf| multi_gpu
+    tgi_pod -->|Hosted auf| multi_gpu
     k8s_cli -->|Optional erstellt| ingress
 
     %% Komponenten-Beziehungen
-    vllm_pod -->|Hostet| vllm_engine
-    vllm_engine -->|Nutzt| tensor_parallel
+    tgi_pod -->|Hostet| tgi_engine
+    tgi_engine -->|Nutzt| tensor_parallel
     tensor_parallel -->|Verteilt Last auf| multi_gpu
-    vllm_engine -->|Bietet| openai_api
-    vllm_engine -->|Lädt| llm_models
-    vllm_svc -->|Exponiert| openai_api
+    tgi_engine -->|Bietet| openai_api
+    tgi_engine -->|Lädt| llm_models
+    tgi_svc -->|Exponiert| openai_api
     webui_pod -->|Hostet| open_webui
-    open_webui -->|Verbindet mit| vllm_svc
-    vllm_pod -->|Speichert in| model_cache
+    open_webui -->|Verbindet mit| tgi_svc
+    tgi_pod -->|Speichert in| model_cache
 
     %% Zugriff auf Services
     k8s_cli -->|Ermöglicht| port_forward
-    port_forward -->|Zugriff auf| vllm_svc
+    port_forward -->|Zugriff auf| tgi_svc
     port_forward -->|Zugriff auf| webui_svc
     ingress -->|Öffentlicher Zugriff auf| webui_svc
 
@@ -117,7 +117,7 @@ flowchart TD
     k8s_cluster -->|Verwaltet| namespace
     namespace -->|Teil von| subns
     rbac -->|Kontrolliert Zugriff auf| namespace
-    scheduler -->|Platziert| vllm_pod
+    scheduler -->|Platziert| tgi_pod
     scheduler -->|Platziert| webui_pod
 
     %% Lokale vs. ICC Entwicklung
@@ -127,17 +127,17 @@ flowchart TD
 
 ## Hauptkomponenten
 
-### 1. vLLM-Inferenzserver
+### 1. Text Generation Inference (TGI) Server
 
-vLLM (very Large Language Model) ist ein hochperformanter LLM-Inferenzserver mit folgenden Eigenschaften:
+Text Generation Inference (TGI) ist ein hochperformanter LLM-Inferenzserver von Hugging Face mit folgenden Eigenschaften:
 
-- **Hoher Durchsatz**: Verarbeitet mehrere Anfragen parallel dank PagedAttention-Technologie
-- **Multi-GPU-Unterstützung**: Verteilt große Modelle über mehrere GPUs mittels Tensor-Parallelismus
+- **Hoher Durchsatz**: Verarbeitet mehrere Anfragen parallel dank optimierter Code-Basis
+- **Multi-GPU-Unterstützung**: Verteilt große Modelle über mehrere GPUs mittels Sharded-Modus
 - **OpenAI-kompatible API**: Implementiert die gleiche API wie OpenAI, was die Integration erleichtert
 - **Modellkompatibilität**: Unterstützt eine Vielzahl von HuggingFace-Modellen
 - **Quantisierung**: Unterstützt verschiedene Quantisierungsmethoden (AWQ, GPTQ) zur Reduzierung des Speicherbedarfs
 
-vLLM wird als Kubernetes-Deployment bereitgestellt, das auf Nodes mit NVIDIA-GPUs orchestriert wird.
+TGI wird als Kubernetes-Deployment bereitgestellt, das auf Nodes mit NVIDIA-GPUs orchestriert wird.
 
 ### 2. Open WebUI
 
@@ -145,16 +145,16 @@ Open WebUI ist eine benutzerfreundliche Frontend-Anwendung, die ursprünglich f�
 
 - **Chat-Interface**: Intuitive Benutzeroberfläche für die Interaktion mit LLMs
 - **Konversationsspeicher**: Speichert Chatverläufe für zukünftige Referenz
-- **Modellauswahl**: Unterstützt die Auswahl verschiedener Modelle (im Fall von vLLM ist dies meist nur ein Modell pro Deployment)
+- **Modellauswahl**: Unterstützt die Auswahl verschiedener Modelle (im Fall von TGI ist dies meist nur ein Modell pro Deployment)
 - **Parametersteuerung**: Erlaubt die Anpassung von Inferenzparametern wie Temperatur, Top-P usw.
 
-Die WebUI wird als separates Kubernetes-Deployment bereitgestellt, das mit dem vLLM-Service kommuniziert.
+Die WebUI wird als separates Kubernetes-Deployment bereitgestellt, das mit dem TGI-Service kommuniziert.
 
 ### 3. Multi-GPU-Konfiguration
 
 Die ICC stellt NVIDIA Tesla V100 GPUs bereit, die für die LLM-Inferenz optimiert sind:
 
-- **Tensor-Parallelismus**: Verteilt die Tensor-Operationen eines Modells auf mehrere GPUs
+- **Sharded Mode**: Verteilt das Modell auf mehrere GPUs
 - **GPU-Scheduling**: Die Kubernetes-Konfiguration sorgt dafür, dass die Pods auf Nodes mit der erforderlichen GPU-Anzahl platziert werden
 - **Ressourcenlimits**: Die Deployments definieren präzise Ressourcenanforderungen für die GPUs
 
@@ -162,7 +162,7 @@ Die ICC stellt NVIDIA Tesla V100 GPUs bereit, die für die LLM-Inferenz optimier
 
 Das Deployment nutzt mehrere Kubernetes-Ressourcen:
 
-- **Deployments**: Definieren die Container-Konfigurationen für vLLM und Open WebUI
+- **Deployments**: Definieren die Container-Konfigurationen für TGI und Open WebUI
 - **Services**: Stellen interne Endpunkte für die Kommunikation zwischen den Komponenten bereit
 - **PersistentVolumeClaims**: Optional für die persistente Speicherung von Modellen
 - **ConfigMaps/Secrets**: Verwalten Konfigurationen und sensible Daten
@@ -170,14 +170,14 @@ Das Deployment nutzt mehrere Kubernetes-Ressourcen:
 ## Kommunikations- und Datenfluss
 
 1. **Modellladeprozess**:
-   - vLLM lädt beim Start das konfigurierte Modell von HuggingFace oder aus dem lokalen Cache
-   - Das Modell wird im GPU-Speicher gemäß der Tensor-Parallelismus-Konfiguration verteilt
+   - TGI lädt beim Start das konfigurierte Modell von HuggingFace oder aus dem lokalen Cache
+   - Das Modell wird im GPU-Speicher gemäß der Sharded-Konfiguration verteilt
    - Bei Multi-GPU-Setups werden die Modellgewichte auf mehrere GPUs verteilt
 
 2. **Inferenzprozess**:
    - Die WebUI nimmt Benutzereingaben über das Chat-Interface entgegen
-   - Die Anfrage wird über die OpenAI-kompatible API an den vLLM-Server gesendet
-   - vLLM verarbeitet die Anfrage und nutzt dabei die konfigurierten GPUs
+   - Die Anfrage wird über die OpenAI-kompatible API an den TGI-Server gesendet
+   - TGI verarbeitet die Anfrage und nutzt dabei die konfigurierten GPUs
    - Die Antwort wird zurück an die WebUI gesendet und dem Benutzer präsentiert
 
 3. **Administration**:
@@ -195,16 +195,16 @@ Das Deployment nutzt mehrere Kubernetes-Ressourcen:
 
 1. **Skalierbarkeit**: Durch die Nutzung von Kubernetes kann das System bei Bedarf horizontal und vertikal skaliert werden
 2. **Flexibilität**: Die Modellauswahl kann dynamisch angepasst werden
-3. **Performance**: Multi-GPU-Unterstützung und PagedAttention ermöglichen hohen Durchsatz und niedrige Latenz
+3. **Performance**: Multi-GPU-Unterstützung ermöglicht hohen Durchsatz und niedrige Latenz
 4. **Isolierung**: Jeder Benutzer erhält eine isolierte Umgebung im eigenen Namespace
 5. **Einfache Verwaltung**: Automatisierte Skripte vereinfachen die Verwaltung des Systems
 
 ## Einschränkungen und Herausforderungen
 
 1. **GPU-Verfügbarkeit**: Die Anzahl verfügbarer GPUs in der ICC ist begrenzt
-2. **Node-gebundener Tensor-Parallelismus**: vLLM unterstützt Tensor-Parallelismus derzeit nur innerhalb eines Knotens
+2. **Node-gebundener Sharded-Modus**: TGI unterstützt Sharding derzeit nur innerhalb eines Knotens
 3. **Speicherbeschränkungen**: Die V100 GPUs haben jeweils 16GB Speicher, was den Einsatz sehr großer Modelle ohne Quantisierung erschwert
-4. **Zeit für Modellwechsel**: Das Laden neuer Modelle erfordert einen Neustart des vLLM-Pods und kann einige Zeit in Anspruch nehmen
+4. **Zeit für Modellwechsel**: Das Laden neuer Modelle erfordert einen Neustart des TGI-Pods und kann einige Zeit in Anspruch nehmen
 
 ## Deployment-Workflow
 
