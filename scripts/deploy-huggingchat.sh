@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Deployment von HuggingChat für Text Generation Inference (TGI)
+# Skript zum Deployment von HuggingChat mit Verbindung zum bereits laufenden TGI-Server
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -36,7 +36,7 @@ else
     HUGGINGCHAT_HF_TOKEN_ENV=""
 fi
 
-# Erstelle YAML für HuggingChat Deployment
+# Erstelle YAML für HuggingChat Deployment mit Verbindung zum bestehenden TGI-Server
 cat << EOF > "$TMP_FILE"
 apiVersion: apps/v1
 kind: Deployment
@@ -61,8 +61,9 @@ spec:
         - image: ghcr.io/huggingface/chat-ui:latest
           name: huggingchat
           env:
+            # Verwende die externe URL für den bereits laufenden TGI-Server
             - name: HF_API_URL
-              value: "http://$TGI_SERVICE_NAME:8000/v1"
+              value: "http://host.docker.internal:8000/v1"
             - name: DEFAULT_MODEL
               value: "${MODEL_NAME}"$HUGGINGCHAT_API_KEY_ENV$HUGGINGCHAT_HF_TOKEN_ENV
             - name: ENABLE_EXPERIMENTAL_FEATURES
@@ -104,6 +105,7 @@ EOF
 # Anwenden der Konfiguration
 echo "Deploying HuggingChat zu Namespace $NAMESPACE..."
 echo "Rollout-Strategie: Recreate (100% Ressourcennutzung)"
+echo "Verbindung zum existierenden TGI-Server auf host.docker.internal:8000"
 echo "Verwendetes Modell: $MODEL_NAME"
 echo "Verwendete Konfiguration:"
 cat "$TMP_FILE"
@@ -121,7 +123,7 @@ kubectl -n "$NAMESPACE" rollout status deployment/"$WEBUI_DEPLOYMENT_NAME" --tim
 echo "HuggingChat Deployment erfolgreich."
 echo "Service erreichbar über: $WEBUI_SERVICE_NAME:3000"
 echo
-echo "HINWEIS: HuggingChat verbindet sich automatisch mit dem TGI-Server über die OpenAI-kompatible API."
+echo "HINWEIS: HuggingChat verbindet sich automatisch mit dem bestehenden TGI-Server auf host.docker.internal:8000"
 echo "HINWEIS: Der UI verwendet das Modell: $MODEL_NAME"
 echo "Überwachen Sie den Status mit: kubectl -n $NAMESPACE get pods"
 echo "Für direkten Zugriff führen Sie aus: kubectl -n $NAMESPACE port-forward svc/$WEBUI_SERVICE_NAME 3000:3000"
