@@ -55,7 +55,7 @@ export DSHM_SIZE="8Gi"  # Shared Memory Größe, erhöhe bei Multi-GPU Setups (1
 export TGI_API_KEY="changeme123"  # API-Schlüssel für TGI
 
 # Ressourcenlimits
-export MEMORY_LIMIT="32Gi"  # Speicherlimit, erhöhe auf 64Gi für A100 mit großen Modellen
+export MEMORY_LIMIT="4Gi"  # Speicherlimit, erhöhe auf 64Gi für A100 mit großen Modellen
 export CPU_LIMIT="4"  # CPU-Limit
 
 # Zugriffskonfiguration
