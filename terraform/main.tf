@@ -7,9 +7,13 @@ terraform {
   }
 }
 
+variable "nginx_config_path" {
+  default = "/Users/dev/Documents/git/icc/icc-tgi-deployment/terraform/nginx.conf"
+}
+
 provider "docker" {
   # macOS
-   host = "unix:///Users/martin/.colima/default/docker.sock"
+  host = "unix:///Users/dev/.colima/default/docker.sock"
 }
 
 # Netzwerk für die Container
@@ -28,7 +32,7 @@ resource "docker_container" "open_webui" {
 
   env = [
     "ENABLE_OLLAMA_API=false",
-    #"OPENAI_API_BASE_URL=http://localhost:8000",
+    "OPENAI_API_BASE_URL=http://nginx:8000",  # Nginx als API-Gateway nutzen
     "OPENAI_API_KEY=${var.tgi_api_key}",
     "ENABLE_RAG_WEB_SEARCH=false",
     "ENABLE_IMAGE_GENERATION=false"
@@ -51,4 +55,32 @@ resource "docker_container" "open_webui" {
 # Open WebUI Image
 resource "docker_image" "open_webui" {
   name = "ghcr.io/open-webui/open-webui:main"
+}
+
+# Nginx Container (API-Rewrite von /v1/completions -> /generate)
+resource "docker_container" "nginx" {
+  name  = "nginx-proxy"
+  image = docker_image.nginx.image_id
+
+  networks_advanced {
+    name = docker_network.llm_network.name
+  }
+
+  restart = "unless-stopped"
+
+  volumes {
+    container_path = "/etc/nginx/nginx.conf"
+    host_path      = var.nginx_config_path
+    read_only      = true
+  }
+
+  ports {
+    internal = 8000
+    external = 8000
+  }
+}
+
+# Nginx Image
+resource "docker_image" "nginx" {
+  name = "nginx:latest"
 }
