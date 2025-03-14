@@ -47,12 +47,6 @@ resource "docker_container" "open_webui" {
     host_path      = var.data_volume_path
     read_only      = false
   }
-
-  # Verwende extra_hosts, um zu garantieren, dass host.docker.internal verfügbar ist
-  # Dies ist besonders wichtig für einige Linux-Container-Umgebungen
-  extra_hosts = [
-    "host.docker.internal:host-gateway"
-  ]
 }
 
 # Open WebUI Image
