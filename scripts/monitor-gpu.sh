@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GPU-Monitoring-Skript für vLLM in Kubernetes mit TUI (Terminal User Interface)
+# GPU-Monitoring-Skript für TGI in Kubernetes mit TUI (Terminal User Interface)
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -27,7 +27,7 @@ NC='\033[0m' # No Color
 show_help() {
     echo "Verwendung: $0 [OPTIONEN]"
     echo
-    echo "GPU-Monitoring mit TUI (Terminal User Interface) für vLLM in Kubernetes"
+    echo "GPU-Monitoring mit TUI (Terminal User Interface) für TGI in Kubernetes"
     echo
     echo "Optionen:"
     echo "  -h, --help        Diese Hilfe anzeigen"
@@ -99,17 +99,17 @@ if ! command -v tput &> /dev/null; then
     }
 fi
 
-# Überprüfe ob das vLLM Deployment existiert
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden."
+# Überprüfe ob das TGI Deployment existiert
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
 
 # Hole den Pod-Namen
-POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l service=vllm -o jsonpath='{.items[0].metadata.name}')
+POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l app=llm-server -o jsonpath='{.items[0].metadata.name}')
 if [ -z "$POD_NAME" ]; then
-    echo "Fehler: Konnte keinen laufenden vLLM Pod finden."
+    echo "Fehler: Konnte keinen laufenden TGI Pod finden."
     exit 1
 fi
 
@@ -121,7 +121,7 @@ fi
 
 # CSV-Header initialisieren, falls erforderlich
 if [ -n "$SAVE_FILE" ]; then
-    echo "Zeitstempel,GPU-Index,GPU-Name,Temperatur,GPU-Auslastung,Speicher-Auslastung,Verwendeter Speicher,Freier Speicher,vLLM-Prozesse" > "$SAVE_FILE"
+    echo "Zeitstempel,GPU-Index,GPU-Name,Temperatur,GPU-Auslastung,Speicher-Auslastung,Verwendeter Speicher,Freier Speicher,TGI-Prozesse" > "$SAVE_FILE"
     echo "CSV-Ausgabe wird in '$SAVE_FILE' gespeichert."
 fi
 
@@ -143,23 +143,23 @@ monitor_full() {
     # GPU-Informationen
     kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi
     
-    echo -e "\n${BOLD}--- vLLM Prozesse ---${NC}"
-    kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -E "ray|python|cuda" | grep -v grep || echo "Keine vLLM-Prozesse gefunden"
+    echo -e "\n${BOLD}--- TGI Prozesse ---${NC}"
+    kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -E "python|text-generation|cuda" | grep -v grep || echo "Keine TGI-Prozesse gefunden"
     
     # GPU-Metriken erfassen für CSV
     if [ -n "$SAVE_FILE" ]; then
         kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.free --format=csv,noheader | while read -r line; do
-            # Zähle vLLM Prozesse
-            VLLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "ray|python" || echo "0")
-            echo "$timestamp,$line,$VLLM_PROCS" >> "$SAVE_FILE"
+            # Zähle TGI Prozesse
+            TGI_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
+            echo "$timestamp,$line,$TGI_PROCS" >> "$SAVE_FILE"
         done
     fi
     
     # API-Status prüfen
-    echo -e "\n${BOLD}--- vLLM API Status ---${NC}"
+    echo -e "\n${BOLD}--- TGI API Status ---${NC}"
     # Temporäres Port-Forwarding
     PF_PORT=9999
-    kubectl -n "$NAMESPACE" port-forward svc/"$VLLM_SERVICE_NAME" ${PF_PORT}:8000 &>/dev/null &
+    kubectl -n "$NAMESPACE" port-forward svc/"$TGI_SERVICE_NAME" ${PF_PORT}:3333 &>/dev/null &
     PF_PID=$!
     # Warte kurz und teste API
     sleep 2
@@ -193,9 +193,9 @@ monitor_compact() {
     # GPU-Metriken erfassen für CSV
     if [ -n "$SAVE_FILE" ]; then
         kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.free --format=csv,noheader | while read -r line; do
-            # Zähle vLLM Prozesse
-            VLLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "ray|python" || echo "0")
-            echo "$timestamp,$line,$VLLM_PROCS" >> "$SAVE_FILE"
+            # Zähle TGI Prozesse
+            TGI_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
+            echo "$timestamp,$line,$TGI_PROCS" >> "$SAVE_FILE"
         done
     fi
     
