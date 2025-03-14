@@ -29,6 +29,31 @@ resource "docker_network" "llm_network" {
   name = "llm-network"
 }
 
+# MongoDB Container für HuggingChat
+resource "docker_container" "mongodb" {
+  count = var.ui_type == "huggingchat" ? 1 : 0
+  
+  name  = "mongodb-for-huggingchat"
+  image = docker_image.mongodb[0].image_id
+  
+  networks_advanced {
+    name = docker_network.llm_network.name
+  }
+  
+  ports {
+    internal = 27017
+    external = 27017
+  }
+  
+  restart = "unless-stopped"
+  
+  volumes {
+    container_path = "/data/db"
+    host_path      = "${var.data_volume_path}/mongodb"
+    read_only      = false
+  }
+}
+
 # Open WebUI Container - wenn als UI-Typ ausgewählt
 resource "docker_container" "open_webui" {
   count = var.ui_type == "openwebui" ? 1 : 0
@@ -75,12 +100,14 @@ resource "docker_container" "huggingchat" {
   }
 
   # TGI-Server läuft bereits auf host.docker.internal:8000
+  # MongoDB-Verbindung (läuft im selben Docker-Netzwerk)
   env = [
     "HF_API_URL=http://host.docker.internal:8000/v1",
     "DEFAULT_MODEL=${var.model_name}",
     "HF_ACCESS_TOKEN=${var.huggingface_token}",
     "ENABLE_EXPERIMENTAL_FEATURES=true",
-    "ENABLE_THEMING=true"
+    "ENABLE_THEMING=true",
+    "MONGODB_URL=mongodb://mongodb-for-huggingchat:27017/huggingchat"
   ]
 
   ports {
@@ -95,6 +122,11 @@ resource "docker_container" "huggingchat" {
     host_path      = "${var.data_volume_path}/huggingchat"
     read_only      = false
   }
+  
+  # Abhängigkeit zur MongoDB definieren
+  depends_on = [
+    docker_container.mongodb
+  ]
 }
 
 # Open WebUI Image
@@ -107,4 +139,10 @@ resource "docker_image" "open_webui" {
 resource "docker_image" "huggingchat" {
   count = var.ui_type == "huggingchat" ? 1 : 0
   name  = "ghcr.io/huggingface/chat-ui:latest"
+}
+
+# MongoDB Image
+resource "docker_image" "mongodb" {
+  count = var.ui_type == "huggingchat" ? 1 : 0
+  name  = "mongo:latest"
 }
