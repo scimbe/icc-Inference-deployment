@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Skript zum Anzeigen und Analysieren von Logs der vLLM und WebUI Pods
+# Skript zum Anzeigen und Analysieren von Logs der TGI und WebUI Pods
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -27,7 +27,7 @@ NC='\033[0m' # No Color
 show_help() {
     echo "Verwendung: $0 [OPTIONEN] [KOMPONENTE]"
     echo
-    echo "Anzeigen und Analysieren von Logs der vLLM und WebUI Pods."
+    echo "Anzeigen und Analysieren von Logs der TGI und WebUI Pods."
     echo
     echo "Optionen:"
     echo "  -h, --help        Diese Hilfe anzeigen"
@@ -36,13 +36,13 @@ show_help() {
     echo "  -s, --save FILE   Logs in Datei speichern"
     echo "  -a, --analyze     Logs analysieren und Zusammenfassung anzeigen"
     echo
-    echo "KOMPONENTE kann 'vllm', 'webui' oder 'all' sein (Standard: vllm)"
+    echo "KOMPONENTE kann 'tgi', 'webui' oder 'all' sein (Standard: tgi)"
     echo
     echo "Beispiele:"
-    echo "  $0                   # Zeigt die letzten 50 Zeilen der vLLM-Logs an"
+    echo "  $0                   # Zeigt die letzten 50 Zeilen der TGI-Logs an"
     echo "  $0 webui -f          # Zeigt WebUI-Logs kontinuierlich an"
     echo "  $0 all -l 100        # Zeigt jeweils 100 Zeilen beider Komponenten an"
-    echo "  $0 vllm -s logs.txt  # Speichert vLLM-Logs in logs.txt"
+    echo "  $0 tgi -s logs.txt   # Speichert TGI-Logs in logs.txt"
     echo "  $0 all -a            # Analysiert Logs beider Komponenten"
     exit 0
 }
@@ -52,7 +52,7 @@ FOLLOW=false
 LINES=50
 SAVE_FILE=""
 ANALYZE=false
-COMPONENT="vllm"  # Standard-Komponente
+COMPONENT="tgi"  # Standard-Komponente
 
 # Parameter parsen
 while [[ $# -gt 0 ]]; do
@@ -76,7 +76,7 @@ while [[ $# -gt 0 ]]; do
             ANALYZE=true
             shift
             ;;
-        vllm|webui|all)
+        tgi|webui|all)
             COMPONENT="$1"
             shift
             ;;
@@ -88,17 +88,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Überprüfe, ob die Deployments existieren
-if ! kubectl -n "$NAMESPACE" get deployment "$VLLM_DEPLOYMENT_NAME" &> /dev/null; then
-    echo -e "${RED}Fehler: vLLM Deployment '$VLLM_DEPLOYMENT_NAME' nicht gefunden.${NC}"
+if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
+    echo -e "${RED}Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden.${NC}"
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
 
-if ! kubectl -n "$NAMESPACE" get deployment "$WEBUI_DEPLOYMENT_NAME" &> /dev/null && [ "$COMPONENT" != "vllm" ]; then
+if ! kubectl -n "$NAMESPACE" get deployment "$WEBUI_DEPLOYMENT_NAME" &> /dev/null && [ "$COMPONENT" != "tgi" ]; then
     echo -e "${YELLOW}Warnung: WebUI Deployment '$WEBUI_DEPLOYMENT_NAME' nicht gefunden.${NC}"
     if [ "$COMPONENT" == "all" ]; then
-        echo "Es werden nur vLLM-Logs angezeigt."
-        COMPONENT="vllm"
+        echo "Es werden nur TGI-Logs angezeigt."
+        COMPONENT="tgi"
     elif [ "$COMPONENT" == "webui" ]; then
         echo "Bitte führen Sie zuerst deploy.sh aus oder wählen Sie eine andere Komponente."
         exit 1
@@ -110,15 +110,18 @@ show_logs() {
     local component=$1
     local deployment_name
     local pod_name
+    local label
     
-    if [ "$component" == "vllm" ]; then
-        deployment_name="$VLLM_DEPLOYMENT_NAME"
+    if [ "$component" == "tgi" ]; then
+        deployment_name="$TGI_DEPLOYMENT_NAME"
+        label="app=llm-server"
     else
         deployment_name="$WEBUI_DEPLOYMENT_NAME"
+        label="service=tgi-webui"
     fi
     
     # Hole den neuesten Pod
-    pod_name=$(kubectl -n "$NAMESPACE" get pod -l "service=$component" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    pod_name=$(kubectl -n "$NAMESPACE" get pod -l "$label" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     
     if [ -z "$pod_name" ]; then
         echo -e "${RED}Fehler: Kein Pod für $component gefunden.${NC}"
@@ -150,15 +153,18 @@ analyze_logs() {
     local component=$1
     local deployment_name
     local pod_name
+    local label
     
-    if [ "$component" == "vllm" ]; then
-        deployment_name="$VLLM_DEPLOYMENT_NAME"
+    if [ "$component" == "tgi" ]; then
+        deployment_name="$TGI_DEPLOYMENT_NAME"
+        label="app=llm-server"
     else
         deployment_name="$WEBUI_DEPLOYMENT_NAME"
+        label="service=tgi-webui"
     fi
     
     # Hole den neuesten Pod
-    pod_name=$(kubectl -n "$NAMESPACE" get pod -l "service=$component" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    pod_name=$(kubectl -n "$NAMESPACE" get pod -l "$label" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     
     if [ -z "$pod_name" ]; then
         echo -e "${RED}Fehler: Kein Pod für $component gefunden.${NC}"
@@ -186,20 +192,20 @@ analyze_logs() {
     echo -e "Warnungen gefunden: ${YELLOW}$warning_count${NC}"
     
     # Spezifische Analyse je nach Komponente
-    if [ "$component" == "vllm" ]; then
+    if [ "$component" == "tgi" ]; then
         # Modell-Loading
-        if grep -q "Loading model" "$temp_log_file"; then
+        if grep -q "Loading" "$temp_log_file" || grep -q "loaded" "$temp_log_file"; then
             echo -e "${GREEN}✓${NC} Modell-Loading wurde gestartet"
             
             # Prüfe, ob das Modell geladen wurde
-            if grep -q "Loading model weights" "$temp_log_file" && grep -q "Loaded model weights" "$temp_log_file"; then
-                echo -e "${GREEN}✓${NC} Modell-Gewichte wurden geladen"
+            if grep -q "Loaded" "$temp_log_file"; then
+                echo -e "${GREEN}✓${NC} Modell wurde erfolgreich geladen"
             else
-                echo -e "${YELLOW}⚠${NC} Modell-Gewichte werden möglicherweise noch geladen"
+                echo -e "${YELLOW}⚠${NC} Modell wird möglicherweise noch geladen"
             fi
             
             # Prüfe, ob der Server gestartet ist
-            if grep -q "Running on http" "$temp_log_file"; then
+            if grep -q "Starting server" "$temp_log_file"; then
                 echo -e "${GREEN}✓${NC} Server läuft und akzeptiert Anfragen"
             else
                 echo -e "${YELLOW}⚠${NC} Server wurde noch nicht vollständig gestartet"
@@ -209,13 +215,12 @@ analyze_logs() {
         fi
         
         # GPU-Nutzung
-        if grep -q "CUDA is available" "$temp_log_file" || grep -q "Using device: cuda" "$temp_log_file"; then
+        if grep -q "CUDA" "$temp_log_file" || grep -q "GPU" "$temp_log_file"; then
             echo -e "${GREEN}✓${NC} CUDA ist verfügbar und wird genutzt"
             
-            # Tensor-Parallelism
-            if grep -q "tensor_parallel_size" "$temp_log_file"; then
-                local tp_size=$(grep -o "tensor_parallel_size[^,]*" "$temp_log_file" | tail -1 | grep -o "[0-9]")
-                echo -e "${GREEN}✓${NC} Tensor-Parallelism ist aktiv mit $tp_size GPUs"
+            # Sharded Modus
+            if grep -q "sharded" "$temp_log_file"; then
+                echo -e "${GREEN}✓${NC} Sharded-Modus ist aktiv (Multi-GPU)"
             fi
         else
             echo -e "${RED}✗${NC} CUDA-Nutzung konnte nicht bestätigt werden"
@@ -224,8 +229,7 @@ analyze_logs() {
         # Typische Fehler
         if grep -q "CUDA out of memory" "$temp_log_file"; then
             echo -e "${RED}✗${NC} CUDA Out-of-Memory-Fehler gefunden!"
-            echo -e "   Empfehlung: Reduzieren Sie gpu-memory-utilization, verwenden Sie mehr GPUs,"
-            echo -e "   oder wechseln Sie zu einem kleineren Modell."
+            echo -e "   Empfehlung: Verwenden Sie mehr GPUs oder wechseln Sie zu einem kleineren Modell."
         fi
         
         if grep -q "Error loading model" "$temp_log_file"; then
@@ -267,11 +271,11 @@ analyze_logs() {
 # Hauptlogik
 if [ "$COMPONENT" == "all" ]; then
     if [ "$ANALYZE" = true ]; then
-        analyze_logs "vllm"
+        analyze_logs "tgi"
         echo
         analyze_logs "webui"
     else
-        show_logs "vllm"
+        show_logs "tgi"
         echo
         show_logs "webui"
     fi
