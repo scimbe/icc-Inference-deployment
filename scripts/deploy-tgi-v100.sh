@@ -185,7 +185,7 @@ fi
 # Speicherressourcen anpassen für V100
 cat >> "$TMP_FILE" << EOF
           requests:
-            memory: "8Gi"
+            memory: "4Gi"
             cpu: "2"
 EOF
 
