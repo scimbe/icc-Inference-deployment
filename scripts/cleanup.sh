@@ -15,7 +15,7 @@ else
     exit 1
 fi
 
-echo "=== Bereinigung der ICC vLLM Deployment Ressourcen ==="
+echo "=== Bereinigung der ICC TGI Deployment Ressourcen ==="
 echo "Namespace: $NAMESPACE"
 
 # Bestätigung einholen
@@ -27,9 +27,9 @@ if [[ ! $REPLY =~ ^[Jj]$ ]]; then
 fi
 
 # Lösche Ingress, falls vorhanden
-if kubectl -n "$NAMESPACE" get ingress vllm-ingress &> /dev/null; then
+if kubectl -n "$NAMESPACE" get ingress tgi-ingress &> /dev/null; then
     echo "Lösche Ingress..."
-    kubectl -n "$NAMESPACE" delete ingress vllm-ingress
+    kubectl -n "$NAMESPACE" delete ingress tgi-ingress
 fi
 
 # Lösche WebUI Deployment und Service
@@ -37,10 +37,10 @@ echo "Lösche WebUI..."
 kubectl -n "$NAMESPACE" delete deployment "$WEBUI_DEPLOYMENT_NAME" --ignore-not-found=true
 kubectl -n "$NAMESPACE" delete service "$WEBUI_SERVICE_NAME" --ignore-not-found=true
 
-# Lösche vLLM Deployment und Service
-echo "Lösche vLLM..."
-kubectl -n "$NAMESPACE" delete deployment "$VLLM_DEPLOYMENT_NAME" --ignore-not-found=true
-kubectl -n "$NAMESPACE" delete service "$VLLM_SERVICE_NAME" --ignore-not-found=true
+# Lösche TGI Deployment und Service
+echo "Lösche TGI..."
+kubectl -n "$NAMESPACE" delete deployment "$TGI_DEPLOYMENT_NAME" --ignore-not-found=true
+kubectl -n "$NAMESPACE" delete service "$TGI_SERVICE_NAME" --ignore-not-found=true
 
 echo "Bereinigung abgeschlossen."
 echo "Die Ressourcen wurden aus dem Kubernetes Cluster entfernt."
