@@ -70,8 +70,8 @@ function load_config() {
     DSHM_SIZE="${DSHM_SIZE:-8Gi}"
     MEMORY_LIMIT="${MEMORY_LIMIT:-16Gi}"
     CPU_LIMIT="${CPU_LIMIT:-4}"
-    TGI_DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-tgi-server}"
-    TGI_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
+    TGI_DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-inf-server}"
+    TGI_SERVICE_NAME="${TGI_SERVICE_NAME:-inf-service}"
     # Neue Option: Sharding für Multi-GPU deaktivieren (Standard: aktiv)
     DISABLE_TGI_SHARDING="${DISABLE_TGI_SHARDING:-false}"
     # Option um den NVIDIA_VISIBLE_DEVICES zu überschreiben
@@ -307,8 +307,6 @@ EOF
           value: "${force_nvidia_devices}"
         - name: CUDA_DEVICE_ORDER
           value: "PCI_BUS_ID"
-        - name: CUDA_FORCE_DEVICE_INDEX
-          value: "0"
         - name: NCCL_DEBUG
           value: "${NCCL_DEBUG}"
         - name: NCCL_DEBUG_SUBSYS
@@ -462,91 +460,14 @@ function display_summary() {
     echo "kubectl -n $namespace port-forward svc/$service_name 8000:8000"
 }
 
-# Hilfsdaten für GPU-Bereitstellung erstellen
-function create_gpu_helper_configmap() {
-    local namespace="$1"
-    
-    # Skript zum Testen der GPU-Erkennung
-    local test_script=$(cat << 'EOF'
-#!/bin/bash
-echo "======= GPU-ERKENNUNG TESTHILFE ======="
-echo "Prüfe GPU-Verfügbarkeit im Container..."
-echo
-
-# Umgebungsvariablen anzeigen
-echo "UMGEBUNGSVARIABLEN:"
-echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-echo "NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES"
-echo
-
-# Versuche nvidia-smi auszuführen
-echo "NVIDIA-SMI OUTPUT:"
-if command -v nvidia-smi &> /dev/null; then
-    nvidia-smi
-else
-    echo "nvidia-smi nicht gefunden! NVIDIA-Treiber möglicherweise nicht verfügbar."
-fi
-echo
-
-# Versuche CUDA-Verfügbarkeit zu testen
-echo "CUDA VERFÜGBARKEIT TEST:"
-python3 -c "import torch; print(f'PyTorch Version: {torch.__version__}'); print(f'CUDA verfügbar: {torch.cuda.is_available()}'); print(f'CUDA Geräte: {torch.cuda.device_count()}'); [print(f'  - GPU {i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]" || echo "PyTorch Test fehlgeschlagen"
-echo
-
-echo "======= TEST ABGESCHLOSSEN ======="
-EOF
-)
-
-    # ConfigMap erstellen
-    kubectl -n "$namespace" apply -f - <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: gpu-helper-scripts
-  namespace: ${namespace}
-data:
-  test-gpu.sh: |
-    ${test_script}
-EOF
-    
-    success "GPU-Hilfsskripte erstellt"
-}
-
-# GPU-Bereitstellung testen
-function test_gpu_deployment() {
-    local namespace="$1"
-    local deployment_name="$2"
-    
-    info "Teste GPU-Erkennung im TGI-Deployment..."
-    
-    # Warte kurz, damit das Deployment Zeit hat zu starten
-    sleep 5
-    
-    # Prüfe, ob das Deployment vorhanden ist
-    if ! kubectl -n "$namespace" get deployment "$deployment_name" &> /dev/null; then
-        warn "Deployment '$deployment_name' nicht gefunden. Test kann nicht durchgeführt werden."
-        return 1
-    fi
-    
-    # Führe Test im Container aus
-    kubectl -n "$namespace" exec deployment/"$deployment_name" -c tgi -- sh -c 'echo "GPU-Test: NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES"; nvidia-smi 2>/dev/null || echo "nvidia-smi fehlgeschlagen, keine GPUs erkannt"'
-    
-    info "GPU-Test abgeschlossen. Bitte prüfen Sie die Ausgabe oben."
-}
-
 # ============================================================================
 # Hauptprogramm
 # ============================================================================
 
-# Banner anzeigen
-cat << "EOF"
- _____ ____ ___    ______           __                                  __ 
-|_   _/ ___/__ \  /_  __/__  ____  / /___  __  ___   _____  ____  _____/ /_
-  | || |    / _/   / / / _ \/ __ \/ / __ \/ / / / | / / _ \/ __ \/ ___/ __/
-  | || |___ /_/   / / /  __/ /_/ / / /_/ / /_/ /| |/ /  __/ / / / /  / /_  
-  |_| \____/___/  /_/  \___/ .___/_/\____/\__, / |___/\___/_/ /_/_/   \__/  
-                         /_/            /____/                       V100
-EOF
+# Banner anzeigen (vereinfacht)
+echo -e "${BLUE}===================================================${NC}"
+echo -e "${BLUE}   Text Generation Inference - V100 GPU Deployment ${NC}"
+echo -e "${BLUE}===================================================${NC}"
 
 # Verzeichnisse und Konfiguration einrichten
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -567,9 +488,6 @@ CUDA_DEVICES=$(prepare_cuda_devices "$GPU_COUNT")
 
 # Bestehende Ressourcen entfernen
 cleanup_resources "$NAMESPACE" "$TGI_DEPLOYMENT_NAME" "$TGI_SERVICE_NAME"
-
-# Hilfsdaten für GPU-Bereitstellung erstellen
-create_gpu_helper_configmap "$NAMESPACE"
 
 # Secrets erstellen
 create_huggingface_secret "$NAMESPACE" "$HUGGINGFACE_TOKEN"
@@ -625,7 +543,7 @@ generate_tgi_manifest \
     "$DISABLE_TGI_SHARDING" \
     "$FORCE_NVIDIA_VISIBLE_DEVICES"
 
-# Optional: YAML-Manifest anzeigen
+# Optional: YAML-Manifest anzeigen und validieren
 if [[ "${SHOW_MANIFEST:-false}" == "true" ]]; then
     info "Generiertes Kubernetes-Manifest:"
     cat "$TMP_FILE"
@@ -638,11 +556,17 @@ if [[ "${SHOW_MANIFEST:-false}" == "true" ]]; then
     fi
 fi
 
+# YAML-Validierung durchführen (nur wenn kubectl vorhanden)
+if command -v kubectl &> /dev/null; then
+    info "Validiere Kubernetes-Manifest..."
+    if ! kubectl apply --dry-run=client -f "$TMP_FILE" > /dev/null; then
+        error "YAML-Manifest ist ungültig. Prüfe die Formatierung."
+    fi
+    success "YAML-Manifest ist valide ✓"
+fi
+
 # Deployment anwenden
 apply_deployment "$TMP_FILE" "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
-
-# GPU-Test durchführen
-test_gpu_deployment "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
 
 # Erfolgsinformationen anzeigen
 display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY" "$GPU_COUNT" "$DISABLE_TGI_SHARDING"
