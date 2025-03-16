@@ -444,6 +444,16 @@ generate_vllm_manifest \
     "$HUGGINGFACE_TOKEN" \
     "$TMP_FILE"
 
+# Manifest überprüfen (debugging)
+echo "DEBUG: Überprüfe YAML-Manifest auf Fehler..."
+if command -v yamllint &> /dev/null; then
+    yamllint -d relaxed "$TMP_FILE" || (cat "$TMP_FILE" && error "YAML-Validierung fehlgeschlagen")
+fi
+
+if command -v kubectl &> /dev/null; then
+    kubectl apply --dry-run=server -f "$TMP_FILE" || (cat "$TMP_FILE" && error "Kubernetes Validierung fehlgeschlagen")
+fi
+
 # Deployment anwenden
 apply_deployment "$TMP_FILE" "$NAMESPACE" "$VLLM_DEPLOYMENT_NAME"
 
