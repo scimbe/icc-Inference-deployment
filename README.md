@@ -1,4 +1,4 @@
-# IC-LLM: V100-optimiertes LLM-Deployment System
+# ICC-LLM: V100-optimiertes LLM-Deployment System
 
 Eine umfassende Lösung für das Deployment von Large Language Models (LLMs) auf NVIDIA Tesla V100 GPUs in der HAW Hamburg Informatik Compute Cloud (ICC).
 
@@ -60,7 +60,7 @@ nano configs/config.sh
 # 4. ODER: vLLM deployen (empfohlen für bestimmte Anwendungsfälle)
 ./scripts/deploy-vllm-v100.sh
 
-# 5. Web-Oberfläche installieren
+# 5. Web-Oberfläche installieren (nur für vllm)
 ./scripts/deploy-webui.sh
 
 # 6. Zugriff einrichten
