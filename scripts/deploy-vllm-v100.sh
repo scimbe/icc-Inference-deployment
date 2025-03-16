@@ -102,23 +102,6 @@ function check_model_access() {
     return 0
 }
 
-# CUDA Devices-String generieren
-function prepare_cuda_devices() {
-    local count="$1"
-    local devices="0"
-    
-    if [[ "$USE_GPU" == "true" ]] && [[ "$count" -gt 1 ]]; then
-        for ((i=1; i<count; i++)); do
-            devices="${devices},$i"
-        done
-        info "Multi-GPU Konfiguration: $count GPUs (CUDA Devices: $devices)"
-    else
-        info "Single-GPU Konfiguration"
-    fi
-    
-    echo "$devices"
-}
-
 # Alte Ressourcen entfernen
 function cleanup_resources() {
     local namespace="$1"
@@ -233,6 +216,9 @@ EOF
         - "${BLOCK_SIZE}"
         - "--swap-space"
         - "${SWAP_SPACE}"
+        - "--dtype"
+        - "float16"
+        - "--enforce-eager"
 EOF
 
     # max-num-seqs verwenden statt max-batch-size (neueres vLLM API)
