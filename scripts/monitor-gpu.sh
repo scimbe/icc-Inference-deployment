@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GPU-Monitoring-Skript für TGI in Kubernetes mit TUI (Terminal User Interface)
+# GPU-Monitoring-Skript für TGI/vLLM in Kubernetes mit TUI (Terminal User Interface)
 set -e
 
 # Pfad zum Skriptverzeichnis
@@ -27,7 +27,7 @@ NC='\033[0m' # No Color
 show_help() {
     echo "Verwendung: $0 [OPTIONEN]"
     echo
-    echo "GPU-Monitoring mit TUI (Terminal User Interface) für TGI in Kubernetes"
+    echo "GPU-Monitoring mit TUI (Terminal User Interface) für TGI/vLLM in Kubernetes"
     echo
     echo "Optionen:"
     echo "  -h, --help        Diese Hilfe anzeigen"
@@ -99,17 +99,36 @@ if ! command -v tput &> /dev/null; then
     }
 fi
 
-# Überprüfe ob das TGI Deployment existiert
-if ! kubectl -n "$NAMESPACE" get deployment "$TGI_DEPLOYMENT_NAME" &> /dev/null; then
-    echo "Fehler: TGI Deployment '$TGI_DEPLOYMENT_NAME' nicht gefunden."
+# Erkenne den Deployment-Typ und -Namen
+DEPLOYMENT_NAME=""
+DEPLOYMENT_TYPE=""
+SERVICE_NAME=""
+POD_LABEL=""
+
+# Prüfe TGI Deployment
+if kubectl -n "$NAMESPACE" get deployment "${TGI_DEPLOYMENT_NAME:-inf-server}" &> /dev/null; then
+    DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-inf-server}"
+    SERVICE_NAME="${TGI_SERVICE_NAME:-inf-service}"
+    DEPLOYMENT_TYPE="TGI"
+    POD_LABEL="app=llm-server"
+# Prüfe vLLM Deployment
+elif kubectl -n "$NAMESPACE" get deployment "${VLLM_DEPLOYMENT_NAME:-vllm-server}" &> /dev/null; then
+    DEPLOYMENT_NAME="${VLLM_DEPLOYMENT_NAME:-vllm-server}"
+    SERVICE_NAME="${VLLM_SERVICE_NAME:-vllm-service}"
+    DEPLOYMENT_TYPE="vLLM"
+    POD_LABEL="service=vllm-server"
+else
+    echo "Fehler: Weder TGI (${TGI_DEPLOYMENT_NAME:-inf-server}) noch vLLM (${VLLM_DEPLOYMENT_NAME:-vllm-server}) Deployment gefunden."
     echo "Bitte führen Sie zuerst deploy.sh aus."
     exit 1
 fi
 
+echo "Erkanntes Deployment: $DEPLOYMENT_TYPE ($DEPLOYMENT_NAME)"
+
 # Hole den Pod-Namen
-POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l app=llm-server -o jsonpath='{.items[0].metadata.name}')
+POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l "$POD_LABEL" -o jsonpath='{.items[0].metadata.name}')
 if [ -z "$POD_NAME" ]; then
-    echo "Fehler: Konnte keinen laufenden TGI Pod finden."
+    echo "Fehler: Konnte keinen laufenden $DEPLOYMENT_TYPE Pod finden."
     exit 1
 fi
 
@@ -121,7 +140,7 @@ fi
 
 # CSV-Header initialisieren, falls erforderlich
 if [ -n "$SAVE_FILE" ]; then
-    echo "Zeitstempel,GPU-Index,GPU-Name,Temperatur,GPU-Auslastung,Speicher-Auslastung,Verwendeter Speicher,Freier Speicher,TGI-Prozesse" > "$SAVE_FILE"
+    echo "Zeitstempel,GPU-Index,GPU-Name,Temperatur,GPU-Auslastung,Speicher-Auslastung,Verwendeter Speicher,Freier Speicher,LLM-Prozesse" > "$SAVE_FILE"
     echo "CSV-Ausgabe wird in '$SAVE_FILE' gespeichert."
 fi
 
@@ -138,28 +157,37 @@ monitor_full() {
     echo -e "${BLUE}Pod:${NC} $POD_NAME"
     echo -e "${BLUE}Namespace:${NC} $NAMESPACE"
     echo -e "${BLUE}Modell:${NC} $MODEL_NAME"
+    echo -e "${BLUE}Engine:${NC} $DEPLOYMENT_TYPE"
     echo
     
     # GPU-Informationen
     kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi
     
-    echo -e "\n${BOLD}--- TGI Prozesse ---${NC}"
-    kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -E "python|text-generation|cuda" | grep -v grep || echo "Keine TGI-Prozesse gefunden"
+    echo -e "\n${BOLD}--- LLM Prozesse ---${NC}"
+    if [ "$DEPLOYMENT_TYPE" = "TGI" ]; then
+        kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -E "python|text-generation|cuda" | grep -v grep || echo "Keine LLM-Prozesse gefunden"
+    else
+        kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -E "python|vllm|api_server|cuda" | grep -v grep || echo "Keine LLM-Prozesse gefunden"
+    fi
     
     # GPU-Metriken erfassen für CSV
     if [ -n "$SAVE_FILE" ]; then
         kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.free --format=csv,noheader | while read -r line; do
-            # Zähle TGI Prozesse
-            TGI_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
-            echo "$timestamp,$line,$TGI_PROCS" >> "$SAVE_FILE"
+            # Zähle LLM Prozesse
+            if [ "$DEPLOYMENT_TYPE" = "TGI" ]; then
+                LLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
+            else
+                LLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|vllm|api_server" || echo "0")
+            fi
+            echo "$timestamp,$line,$LLM_PROCS" >> "$SAVE_FILE"
         done
     fi
     
     # API-Status prüfen
-    echo -e "\n${BOLD}--- TGI API Status ---${NC}"
+    echo -e "\n${BOLD}--- LLM API Status ---${NC}"
     # Temporäres Port-Forwarding
     PF_PORT=9999
-    kubectl -n "$NAMESPACE" port-forward svc/"$TGI_SERVICE_NAME" ${PF_PORT}:3333 &>/dev/null &
+    kubectl -n "$NAMESPACE" port-forward svc/"$SERVICE_NAME" ${PF_PORT}:8000 &>/dev/null &
     PF_PID=$!
     # Warte kurz und teste API
     sleep 2
@@ -167,7 +195,11 @@ monitor_full() {
         API_RESPONSE=$(curl -s localhost:${PF_PORT}/v1/models)
         echo -e "${GREEN}API ist verfügbar${NC}"
         MODEL_ID=$(echo "$API_RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//g')
-        echo -e "  Geladenes Modell: $MODEL_ID"
+        if [ -n "$MODEL_ID" ]; then
+            echo -e "  Geladenes Modell: $MODEL_ID"
+        else
+            echo -e "  Modell wird geladen oder ID nicht erkannt"
+        fi
     else
         echo -e "${RED}API ist nicht erreichbar${NC}"
     fi
@@ -184,6 +216,7 @@ monitor_compact() {
     echo -e "${BLUE}Pod:${NC} $POD_NAME"
     echo -e "${BLUE}Namespace:${NC} $NAMESPACE"
     echo -e "${BLUE}Modell:${NC} $MODEL_NAME"
+    echo -e "${BLUE}Engine:${NC} $DEPLOYMENT_TYPE"
     echo
     
     # GPU-Informationen in kompaktem Format
@@ -193,9 +226,13 @@ monitor_compact() {
     # GPU-Metriken erfassen für CSV
     if [ -n "$SAVE_FILE" ]; then
         kubectl -n "$NAMESPACE" exec "$POD_NAME" -- nvidia-smi --query-gpu=index,name,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.free --format=csv,noheader | while read -r line; do
-            # Zähle TGI Prozesse
-            TGI_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
-            echo "$timestamp,$line,$TGI_PROCS" >> "$SAVE_FILE"
+            # Zähle LLM Prozesse
+            if [ "$DEPLOYMENT_TYPE" = "TGI" ]; then
+                LLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|text-generation" || echo "0")
+            else
+                LLM_PROCS=$(kubectl -n "$NAMESPACE" exec "$POD_NAME" -- ps aux | grep -c -E "python|vllm|api_server" || echo "0")
+            fi
+            echo "$timestamp,$line,$LLM_PROCS" >> "$SAVE_FILE"
         done
     fi
     
@@ -293,6 +330,8 @@ NAMESPACE="$NAMESPACE"
 POD_NAME="$POD_NAME"
 SAVE_FILE="$SAVE_FILE"
 MODEL_NAME="$MODEL_NAME"
+DEPLOYMENT_TYPE="$DEPLOYMENT_TYPE"
+SERVICE_NAME="$SERVICE_NAME"
 run_monitoring
 EOF
         chmod +x "$TMP_SCRIPT"
