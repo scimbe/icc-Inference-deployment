@@ -43,7 +43,7 @@ export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Mini-Modell für Tests
 # Empfohlene Modelle nach Größe:
 # - Klein (~2B Parameter):
 #   export MODEL_NAME="microsoft/phi-2"
-#   export MODEL_NAME="google/gemma-2b-it"
+#   export MODEL_NAME="google/gemma-2b"
 # 
 # - Mittel (~7B Parameter):
 #   export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"
@@ -74,7 +74,7 @@ export MAX_BATCH_PREFILL_TOKENS=4096 # Batch-Größenbegrenzung
 # Performance-Parameter für vLLM
 export BLOCK_SIZE=16                # GPU Memory Block-Größe
 export SWAP_SPACE=4                 # Swap-Space in GB
-export MAX_BATCH_SIZE=32            # Maximale Batch-Größe
+export MAX_BATCH_SIZE=32            # Maximale Batch-Größe (Hinweis: dieser Parameter wird von neueren vLLM-Versionen möglicherweise nicht unterstützt)
 
 # ===== RESSOURCEN-KONFIGURATION =====
 
