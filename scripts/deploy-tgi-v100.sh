@@ -59,11 +59,28 @@ function load_config() {
     CUDA_MEMORY_FRACTION="${CUDA_MEMORY_FRACTION:-0.85}"
     MAX_INPUT_LENGTH="${MAX_INPUT_LENGTH:-2048}"
     MAX_TOTAL_TOKENS="${MAX_TOTAL_TOKENS:-4096}"
+    MAX_BATCH_PREFILL_TOKENS="${MAX_BATCH_PREFILL_TOKENS:-4096}"
     DSHM_SIZE="${DSHM_SIZE:-8Gi}"
     MEMORY_LIMIT="${MEMORY_LIMIT:-16Gi}"
     CPU_LIMIT="${CPU_LIMIT:-4}"
     TGI_DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-tgi-server}"
     TGI_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
+
+    # Dynamische Anpassung von dshm basierend auf GPU-Anzahl
+    if [[ "$USE_GPU" == "true" ]] && [[ "$GPU_COUNT" -gt 1 ]]; then
+        # Erhöhe dshm proportional zur GPU-Anzahl
+        DSHM_SIZE="$((8 * GPU_COUNT))Gi"
+        info "Multi-GPU-Setup: dshm auf $DSHM_SIZE erhöht"
+    fi
+
+    # Standard NCCL-Umgebungsvariablen, falls nicht definiert
+    NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+    NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-ALL}"
+    NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-0}"
+    NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
+    NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
+    NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-^lo,docker}"
+    NCCL_SHM_DISABLE="${NCCL_SHM_DISABLE:-0}"
 }
 
 # Modell-Zugriff prüfen
@@ -235,15 +252,26 @@ EOF
     cat >> "$output_file" << EOF
         - "--max-input-length=${MAX_INPUT_LENGTH}"
         - "--max-total-tokens=${MAX_TOTAL_TOKENS}"
-        - "--max-batch-prefill-tokens=${MAX_BATCH_PREFILL_TOKENS:-4096}"
+        - "--max-batch-prefill-tokens=${MAX_BATCH_PREFILL_TOKENS}"
         - "--cuda-memory-fraction=${CUDA_MEMORY_FRACTION}"
-        - "--max-concurrent-requests=${MAX_CONCURRENT_REQUESTS:-$((8 * (gpu_count > 0 ? gpu_count : 1)))}"
+EOF
+
+    # Berechne optimale Anzahl von parallelen Anfragen basierend auf GPU-Anzahl
+    local max_concurrent=$((8 * (gpu_count > 0 ? gpu_count : 1)))
+    cat >> "$output_file" << EOF
+        - "--max-concurrent-requests=${max_concurrent}"
 EOF
 
     # Multi-GPU Unterstützung
     if [[ "$use_sharded" == true ]]; then
         cat >> "$output_file" << EOF
         - "--sharded=true"
+        - "--num-shard=${gpu_count}"
+EOF
+        # Optimierte Parameter für Multi-GPU
+        local workers=$(( gpu_count > 2 ? gpu_count : 2 ))
+        cat >> "$output_file" << EOF
+        - "--max-parallel-loading-workers=${workers}"
 EOF
     fi
 
@@ -253,11 +281,19 @@ EOF
         - name: CUDA_VISIBLE_DEVICES
           value: "${cuda_devices}"
         - name: NCCL_DEBUG
-          value: "INFO"
-        - name: NCCL_SOCKET_IFNAME
-          value: "^lo,docker"
+          value: "${NCCL_DEBUG}"
+        - name: NCCL_DEBUG_SUBSYS
+          value: "${NCCL_DEBUG_SUBSYS}"
+        - name: NCCL_P2P_DISABLE
+          value: "${NCCL_P2P_DISABLE}"
+        - name: NCCL_IB_DISABLE
+          value: "${NCCL_IB_DISABLE}"
         - name: NCCL_P2P_LEVEL
-          value: "NVL"
+          value: "${NCCL_P2P_LEVEL}"
+        - name: NCCL_SOCKET_IFNAME
+          value: "${NCCL_SOCKET_IFNAME}"
+        - name: NCCL_SHM_DISABLE
+          value: "${NCCL_SHM_DISABLE}"
         - name: TRANSFORMERS_CACHE
           value: "/data/hf-cache"
         - name: HF_HUB_ENABLE_HF_TRANSFER
@@ -362,6 +398,7 @@ function display_summary() {
     local service_name="$3"
     local deployment_name="$4"
     local api_key="$5"
+    local gpu_count="$6"
     
     echo
     success "✅ TGI Deployment erfolgreich gestartet"
@@ -369,6 +406,13 @@ function display_summary() {
     echo "🚀 Verwendetes Modell: $model"
     echo "🌐 Service erreichbar über: $service_name:8000 (intern)"
     echo "🛡️ API-Schlüssel: $([ -n "$api_key" ] && echo "Konfiguriert" || echo "Nicht konfiguriert (ungeschützt)")"
+    
+    if [ "$gpu_count" -gt 1 ]; then
+        echo "🖥️ Multi-GPU Konfiguration: $gpu_count GPUs im Sharded Mode"
+    else
+        echo "🖥️ Single-GPU Konfiguration"
+    fi
+    
     echo
     echo "📋 Hinweise:"
     echo "- TGI bietet eine OpenAI-kompatible API"
@@ -427,6 +471,8 @@ info "Modell: $MODEL_NAME"
 info "Quantisierung: ${QUANTIZATION:-'Keine (float16)'}"
 info "CUDA Memory Fraction: $CUDA_MEMORY_FRACTION"
 info "Speicherlimits: Input $MAX_INPUT_LENGTH, Total $MAX_TOTAL_TOKENS Tokens"
+info "NCCL Konfiguration: DEBUG=$NCCL_DEBUG, P2P=$NCCL_P2P_DISABLE, IB=$NCCL_IB_DISABLE"
+info "Shared Memory (dshm): $DSHM_SIZE"
 info "------------------------"
 
 # Manifest generieren
@@ -450,6 +496,6 @@ generate_tgi_manifest \
 apply_deployment "$TMP_FILE" "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
 
 # Erfolgsinformationen anzeigen
-display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY"
+display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY" "$GPU_COUNT"
 
 exit 0
