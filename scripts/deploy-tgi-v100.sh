@@ -251,7 +251,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: tgi
-        image: ghcr.io/huggingface/text-generation-inference:latest
+        image: ghcr.io/huggingface/text-generation-inference:1.2.0
         imagePullPolicy: IfNotPresent
         command:
         - "text-generation-launcher"
