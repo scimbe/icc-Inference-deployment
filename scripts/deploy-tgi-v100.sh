@@ -260,7 +260,7 @@ spec:
         - "--port=8000"
 EOF
 
-    # Quantisierung oder Dtype (nicht beides)
+    # Quantisierung ODER Dtype (nicht beides!)
     if [[ -n "$quantization" ]]; then
         cat >> "$output_file" << EOF
         - "--quantize=${quantization}"
@@ -505,6 +505,13 @@ else
     fi
 fi
 
+# Prüfung auf den Konflikt zwischen quantize und dtype
+if [[ -n "$QUANTIZATION" ]]; then
+    info "Quantisierung ist aktiviert: $QUANTIZATION (--dtype wird nicht verwendet)"
+else
+    info "Keine Quantisierung aktiviert, verwende dtype=float16"
+fi
+
 # Deployment-Konfiguration
 info "Deployment-Informationen:"
 info "------------------------"
@@ -576,9 +583,8 @@ echo
 info "HINWEISE BEI GPU-PROBLEMEN:"
 echo "- Falls TGI Probleme mit der GPU-Erkennung hat, probieren Sie:"
 echo "  1. In config.sh: export FORCE_NVIDIA_VISIBLE_DEVICES=\"all\" oder \"0,1,...\""
-echo "  2. In config.sh: export QUANTIZATION=\"\" (keine Quantisierung verwenden)"
+echo "  2. Ein anderes Modell probieren, z.B. \"Microsoft/phi-2\" (nicht quantisiert)"
 echo "  3. In config.sh: export DISABLE_TGI_SHARDING=true (bei Multi-GPU)"
-echo "  4. Ein anderes Modell probieren, z.B. \"Microsoft/phi-2\" (nicht quantisiert)"
 echo "- Überprüfen Sie die GPU-Erkennung mit:"
 echo "  kubectl -n $NAMESPACE exec deployment/$TGI_DEPLOYMENT_NAME -c tgi -- nvidia-smi"
 
