@@ -83,6 +83,14 @@ export MAX_INPUT_LENGTH=2048        # Eingabe-Kontextlänge
 export MAX_TOTAL_TOKENS=4096        # Eingabe + Ausgabe Tokens
 export MAX_BATCH_PREFILL_TOKENS=4096 # Batch-Größenbegrenzung
 
+
+# Deaktiviere optimierte Kernels
+export DISABLE_CUSTOM_KERNELS=true
+export TGI_DISABLE_FLASH_ATTENTION=true
+
+# Optimiere CUDA-Einstellungen
+export CUDA_LAUNCH_BLOCKING=1
+export NVIDIA_VISIBLE_DEVICES=all
 # ===== vLLM-SPEZIFISCHE PARAMETER =====
 
 # Performance-Parameter für vLLM
