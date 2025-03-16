@@ -62,6 +62,16 @@ function load_config() {
     DSHM_SIZE="${DSHM_SIZE:-8Gi}"
     MEMORY_LIMIT="${MEMORY_LIMIT:-16Gi}"
     CPU_LIMIT="${CPU_LIMIT:-4}"
+    TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+
+    # Standard NCCL-Umgebungsvariablen, falls nicht definiert
+    NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+    NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-ALL}"
+    NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-0}"
+    NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-0}"
+    NCCL_P2P_LEVEL="${NCCL_P2P_LEVEL:-NVL}"
+    NCCL_SOCKET_IFNAME="${NCCL_SOCKET_IFNAME:-^lo,docker}"
+    NCCL_SHM_DISABLE="${NCCL_SHM_DISABLE:-0}"
     
     # vLLM-spezifische Namen falls nicht definiert
     VLLM_DEPLOYMENT_NAME="${VLLM_DEPLOYMENT_NAME:-vllm-server}"
@@ -147,6 +157,7 @@ function generate_vllm_args() {
     local model="$1"
     local gpu_count="$2"
     local quantization="$3"
+    local tensor_parallel_size="$4"
     
     # Basis-Argumente
     local args="--model ${model} --host 0.0.0.0 --port 8000"
@@ -156,9 +167,9 @@ function generate_vllm_args() {
         args="$args --quantization ${quantization}"
     fi
     
-    # Multi-GPU Konfiguration
-    if [[ "$USE_GPU" == "true" ]] && [[ "$gpu_count" -gt 1 ]]; then
-        args="$args --tensor-parallel-size ${gpu_count}"
+    # Tensor Parallelism konfigurieren (für Multi-GPU)
+    if [[ "$USE_GPU" == "true" ]] && [[ "$tensor_parallel_size" -gt 1 ]]; then
+        args="$args --tensor-parallel-size ${tensor_parallel_size}"
     fi
     
     # Memory-Optimierung
@@ -240,9 +251,19 @@ spec:
         - name: CUDA_VISIBLE_DEVICES
           value: "${cuda_devices}"
         - name: NCCL_DEBUG
-          value: "INFO"
+          value: "${NCCL_DEBUG}"
+        - name: NCCL_DEBUG_SUBSYS
+          value: "${NCCL_DEBUG_SUBSYS}"
+        - name: NCCL_P2P_DISABLE
+          value: "${NCCL_P2P_DISABLE}"
+        - name: NCCL_IB_DISABLE
+          value: "${NCCL_IB_DISABLE}"
+        - name: NCCL_P2P_LEVEL
+          value: "${NCCL_P2P_LEVEL}"
         - name: NCCL_SOCKET_IFNAME
-          value: "^lo,docker"
+          value: "${NCCL_SOCKET_IFNAME}"
+        - name: NCCL_SHM_DISABLE
+          value: "${NCCL_SHM_DISABLE}"
 EOF
 
     # HuggingFace Token, falls vorhanden
@@ -378,8 +399,21 @@ cleanup_resources "$NAMESPACE" "$VLLM_DEPLOYMENT_NAME" "$VLLM_SERVICE_NAME"
 # Secrets erstellen
 create_huggingface_secret "$NAMESPACE" "$HUGGINGFACE_TOKEN"
 
+# Tensor Parallel Size bestimmen
+if [ -z "$TENSOR_PARALLEL_SIZE" ] || [ "$TENSOR_PARALLEL_SIZE" -lt 1 ]; then
+    TENSOR_PARALLEL_SIZE=1
+    info "Tensor Parallel Size auf 1 gesetzt (Keine Parallelisierung)"
+fi
+
+# Falls TENSOR_PARALLEL_SIZE größer als GPU_COUNT, entsprechend warnen
+if [ "$TENSOR_PARALLEL_SIZE" -gt "$GPU_COUNT" ]; then
+    warn "WARNUNG: TENSOR_PARALLEL_SIZE ($TENSOR_PARALLEL_SIZE) größer als GPU_COUNT ($GPU_COUNT)"
+    warn "Tensor Parallel Size wird auf GPU_COUNT ($GPU_COUNT) begrenzt"
+    TENSOR_PARALLEL_SIZE=$GPU_COUNT
+fi
+
 # vLLM Argumente generieren
-VLLM_ARGS=$(generate_vllm_args "$MODEL_NAME" "$GPU_COUNT" "$QUANTIZATION")
+VLLM_ARGS=$(generate_vllm_args "$MODEL_NAME" "$GPU_COUNT" "$QUANTIZATION" "$TENSOR_PARALLEL_SIZE")
 
 # Deployment-Konfiguration
 info "Deployment-Informationen:"
@@ -388,10 +422,11 @@ info "Namespace: $NAMESPACE"
 info "GPU-Typ: $GPU_TYPE mit $GPU_COUNT GPU(s)"
 info "Modell: $MODEL_NAME"
 info "Quantisierung: ${QUANTIZATION:-'Keine'}"
-info "Tensor Parallel Size: $GPU_COUNT"
+info "Tensor Parallel Size: $TENSOR_PARALLEL_SIZE"
 info "Max Model Length: $MAX_TOTAL_TOKENS"
 info "Block Size: $BLOCK_SIZE"
 info "Swap Space: $SWAP_SPACE GB"
+info "NCCL Konfiguration: DEBUG=$NCCL_DEBUG, P2P=$NCCL_P2P_DISABLE, IB=$NCCL_IB_DISABLE"
 info "------------------------"
 
 # Manifest generieren
