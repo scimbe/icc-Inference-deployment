@@ -152,61 +152,6 @@ data:
 EOF
 }
 
-# vLLM Argumente generieren
-function generate_vllm_args() {
-    local model="$1"
-    local gpu_count="$2"
-    local quantization="$3"
-    local tensor_parallel_size="$4"
-    
-    # Basis-Argumente
-    local args="--model ${model} --host 0.0.0.0 --port 8000"
-    
-    # Quantisierung hinzufügen (falls konfiguriert)
-    if [[ -n "$quantization" ]]; then
-        args="$args --quantization ${quantization}"
-    fi
-    
-    # Tensor Parallelism konfigurieren (für Multi-GPU)
-    if [[ "$USE_GPU" == "true" ]] && [[ "$tensor_parallel_size" -gt 1 ]]; then
-        args="$args --tensor-parallel-size ${tensor_parallel_size}"
-    fi
-    
-    # Memory-Optimierung
-    args="$args --max-model-len ${MAX_TOTAL_TOKENS} --block-size ${BLOCK_SIZE} --swap-space ${SWAP_SPACE}"
-    
-    # Prüfe, ob max-batch-size unterstützt wird
-    if command -v vllm &> /dev/null; then
-        if vllm --help | grep -q "max-batch-size"; then
-            # max-batch-size wird unterstützt
-            args="$args --max-batch-size ${MAX_BATCH_SIZE:-32}"
-        else
-            warn "Der Parameter --max-batch-size wird in Ihrer vLLM-Version nicht unterstützt und wird übersprungen."
-        fi
-    else
-        # Wir können nicht prüfen, ob es unterstützt wird, also lassen wir es weg
-        warn "Der Parameter --max-batch-size wird möglicherweise nicht unterstützt und wird übersprungen."
-    fi
-    
-    # JSON-formatierte Argumente erstellen
-    local json_args="["
-    
-    # Argumente aufteilen und als JSON-Array formatieren
-    IFS=' ' read -ra ARGS_ARRAY <<< "$args"
-    for i in "${!ARGS_ARRAY[@]}"; do
-        arg="${ARGS_ARRAY[$i]}"
-        json_args+="\"$arg\""
-        
-        # Komma hinzufügen, wenn nicht das letzte Element
-        if (( i < ${#ARGS_ARRAY[@]} - 1 )); then
-            json_args+=", "
-        fi
-    done
-    
-    json_args+="]"
-    echo "$json_args"
-}
-
 # Manifest generieren
 function generate_vllm_manifest() {
     local namespace="$1"
@@ -215,9 +160,11 @@ function generate_vllm_manifest() {
     local cuda_devices="$4"
     local gpu_count="$5"
     local gpu_type="$6"
-    local vllm_args="$7"
-    local hf_token="$8"
-    local output_file="$9"
+    local model="$7"
+    local quantization="$8"
+    local tensor_parallel_size="$9"
+    local output_file="${10}"
+    local hf_token="${11}"
     
     # Erstelle Manifest
     cat > "$output_file" << EOF
@@ -246,7 +193,51 @@ spec:
       - name: vllm
         image: vllm/vllm-openai:latest
         imagePullPolicy: IfNotPresent
-        args: ${vllm_args}
+        args:
+        - "--model"
+        - "${model}"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8000"
+EOF
+
+    # Füge Tensor Parallel Size hinzu für Multi-GPU
+    if [[ "$USE_GPU" == "true" ]] && [[ "$tensor_parallel_size" -gt 1 ]]; then
+        cat >> "$output_file" << EOF
+        - "--tensor-parallel-size"
+        - "${tensor_parallel_size}"
+EOF
+    fi
+
+    # Füge Quantisierung hinzu (falls konfiguriert)
+    if [[ -n "$quantization" ]]; then
+        cat >> "$output_file" << EOF
+        - "--quantization"
+        - "${quantization}"
+EOF
+    fi
+
+    # Memory-Optimierung
+    cat >> "$output_file" << EOF
+        - "--max-model-len"
+        - "${MAX_TOTAL_TOKENS}"
+        - "--block-size"
+        - "${BLOCK_SIZE}"
+        - "--swap-space"
+        - "${SWAP_SPACE}"
+EOF
+
+    # Prüfe, ob max-batch-size unterstützt wird
+    if [ -n "${MAX_BATCH_SIZE}" ]; then
+        cat >> "$output_file" << EOF
+        - "--max-batch-size"
+        - "${MAX_BATCH_SIZE}"
+EOF
+    fi
+
+    # Container Environment fortstetzen
+    cat >> "$output_file" << EOF
         env:
         - name: CUDA_VISIBLE_DEVICES
           value: "${cuda_devices}"
@@ -412,9 +403,6 @@ if [ "$TENSOR_PARALLEL_SIZE" -gt "$GPU_COUNT" ]; then
     TENSOR_PARALLEL_SIZE=$GPU_COUNT
 fi
 
-# vLLM Argumente generieren
-VLLM_ARGS=$(generate_vllm_args "$MODEL_NAME" "$GPU_COUNT" "$QUANTIZATION" "$TENSOR_PARALLEL_SIZE")
-
 # Deployment-Konfiguration
 info "Deployment-Informationen:"
 info "------------------------"
@@ -440,9 +428,11 @@ generate_vllm_manifest \
     "$CUDA_DEVICES" \
     "$GPU_COUNT" \
     "$GPU_TYPE" \
-    "$VLLM_ARGS" \
-    "$HUGGINGFACE_TOKEN" \
-    "$TMP_FILE"
+    "$MODEL_NAME" \
+    "$QUANTIZATION" \
+    "$TENSOR_PARALLEL_SIZE" \
+    "$TMP_FILE" \
+    "$HUGGINGFACE_TOKEN"
 
 # Manifest überprüfen (debugging)
 echo "DEBUG: Überprüfe YAML-Manifest auf Fehler..."
