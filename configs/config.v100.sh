@@ -38,7 +38,7 @@ export GPU_COUNT=1                  # Anzahl der GPUs (1-4)
 # ===== MODELL-KONFIGURATION =====
 
 # Modellauswahl (einen der folgenden Werte verwenden)
-export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Mini-Modell für Tests
+export MODEL_NAME="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"  # Quantisiertes Modell für bessere Performance
 
 # Empfohlene Modelle nach Größe:
 # - Klein (~2B Parameter):
@@ -48,6 +48,10 @@ export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Mini-Modell für Tests
 # - Mittel (~7B Parameter):
 #   export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"
 #   export MODEL_NAME="NousResearch/Hermes-3-Llama-3.1-8B"
+#
+# - Quantisierte Modelle (für bessere Performance):
+#   export MODEL_NAME="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"
+#   export MODEL_NAME="TheBloke/Llama-2-7B-Chat-GPTQ"
 # 
 # - Größere Modelle nur mit Quantisierung oder Multi-GPU (13-70B)
 
@@ -56,10 +60,20 @@ export MODEL_NAME="TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Mini-Modell für Tests
 # WÄHLEN SIE EINE DER BEIDEN OPTIONEN:
 
 # OPTION 1: Nutzen Sie Quantisierung für größere Modelle (empfohlen für 7B+)
-# export QUANTIZATION="awq"  # Aktiviere AWQ-Quantisierung für bessere Memory-Effizienz
+export QUANTIZATION="gptq"  # Aktiviere GPTQ-Quantisierung für bessere Memory-Effizienz
+# export QUANTIZATION="awq"  # Alternativ: AWQ-Quantisierung verwenden
 
 # OPTION 2: Verwenden Sie Float16-Precision (Default, wenn Quantisierung leer)
-export QUANTIZATION=""      # Leer lassen, um float16 zu verwenden
+# export QUANTIZATION=""      # Leer lassen, um float16 zu verwenden
+
+# ===== NCCL-KONFIGURATION FÜR MULTI-GPU-BETRIEB =====
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_P2P_DISABLE=0
+export NCCL_IB_DISABLE=0
+export NCCL_P2P_LEVEL=NVL
+export NCCL_SOCKET_IFNAME="^lo,docker"
+export NCCL_SHM_DISABLE=0
 
 # ===== TGI-SPEZIFISCHE PARAMETER =====
 
@@ -75,6 +89,7 @@ export MAX_BATCH_PREFILL_TOKENS=4096 # Batch-Größenbegrenzung
 export BLOCK_SIZE=16                # GPU Memory Block-Größe
 export SWAP_SPACE=4                 # Swap-Space in GB
 export MAX_BATCH_SIZE=32            # Maximale Batch-Größe (Hinweis: dieser Parameter wird von neueren vLLM-Versionen möglicherweise nicht unterstützt)
+export TENSOR_PARALLEL_SIZE=1       # Anzahl der GPUs für Tensor-Parallelismus (kann auf GPU_COUNT gesetzt werden)
 
 # ===== RESSOURCEN-KONFIGURATION =====
 
