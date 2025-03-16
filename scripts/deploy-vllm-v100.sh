@@ -394,8 +394,20 @@ load_config "$CONFIG_FILE"
 # Parameter prüfen
 check_model_access "$MODEL_NAME" "$HUGGINGFACE_TOKEN"
 
+# GPU-Konfiguration ausgeben
+if [[ "$USE_GPU" == "true" ]] && [[ "$GPU_COUNT" -gt 1 ]]; then
+    info "Multi-GPU Konfiguration: $GPU_COUNT GPUs"
+else
+    info "Single-GPU Konfiguration"
+fi
+
 # CUDA Devices vorbereiten
-CUDA_DEVICES=$(prepare_cuda_devices "$GPU_COUNT")
+CUDA_DEVICES="0"
+if [[ "$USE_GPU" == "true" ]] && [[ "$GPU_COUNT" -gt 1 ]]; then
+    for ((i=1; i<GPU_COUNT; i++)); do
+        CUDA_DEVICES="${CUDA_DEVICES},$i"
+    done
+fi
 
 # Bestehende Ressourcen entfernen
 cleanup_resources "$NAMESPACE" "$VLLM_DEPLOYMENT_NAME" "$VLLM_SERVICE_NAME"
