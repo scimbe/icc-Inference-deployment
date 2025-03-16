@@ -20,7 +20,7 @@ export HUGGINGFACE_TOKEN=""         # Optional, für gated Modelle
 # ===== DEPLOYMENT-KONFIGURATION =====
 
 # Engine-Auswahl
-export ENGINE_TYPE="tgi"            # "tgi" oder "vllm"
+export ENGINE_TYPE="vllm"            # "tgi" oder "vllm"
 
 # Deployment-Namen
 export TGI_DEPLOYMENT_NAME="inf-server"
@@ -37,8 +37,11 @@ export GPU_COUNT=1                  # Anzahl der GPUs (1-4)
 
 # ===== MODELL-KONFIGURATION =====
 
-# Modellauswahl (einen der folgenden Werte verwenden)
+# Modellauswahl (einen der folgenden Werte verwenden) für vLLM haben wir breitere unterstütyung
 export MODEL_NAME="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"  # Quantisiertes Modell für bessere Performance
+
+##  !!!!! TEST TGI !!!!!!!!!!!!! Wenige Modelle bisher ervollgreich gestetes
+# export MODEL_NAME="gpt2"
 
 # Empfohlene Modelle nach Größe:
 # - Klein (~2B Parameter):
