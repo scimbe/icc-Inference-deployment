@@ -38,7 +38,8 @@ export GPU_COUNT=1                  # Anzahl der GPUs (1-4)
 # ===== MODELL-KONFIGURATION =====
 
 # Modellauswahl (einen der folgenden Werte verwenden) für vLLM haben wir breitere unterstütyung
-export MODEL_NAME="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"  # Quantisiertes Modell für bessere Performance
+export MODEL_NAME="TheBloke/Mistral-7B-Instruct-v0.2-GPTQ"  # Quantisiertes Modell für bessere Performance (Tested)
+#export MODEL_NAME="Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4" # (Tested)
 
 ##  !!!!! TEST TGI !!!!!!!!!!!!! Wenige Modelle bisher ervollgreich gestetes
 # export MODEL_NAME="gpt2"
