@@ -60,7 +60,7 @@ nano configs/config.sh
 # 4. ODER: vLLM deployen (empfohlen für bestimmte Anwendungsfälle)
 ./scripts/deploy-vllm-v100.sh
 
-# 5. Web-Oberfläche installieren
+# 5. Web-Oberfläche installieren (nur für vllm)
 ./scripts/deploy-webui.sh
 
 # 6. Zugriff einrichten
