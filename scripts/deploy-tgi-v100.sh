@@ -15,25 +15,32 @@ set -eo pipefail
 # Funktionen
 # ============================================================================
 
+# Farbcodes für Terminal-Ausgaben (ANSI-kompatibel für macOS und Linux)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
 # Fehlerbehandlung
 function error() {
-    echo -e "\e[31mFEHLER: $1\e[0m" >&2
+    echo -e "${RED}FEHLER: $1${NC}" >&2
     exit 1
 }
 
 # Info-Ausgabe
 function info() {
-    echo -e "\e[34m$1\e[0m"
+    echo -e "${BLUE}$1${NC}"
 }
 
 # Erfolgs-Ausgabe
 function success() {
-    echo -e "\e[32m$1\e[0m"
+    echo -e "${GREEN}$1${NC}"
 }
 
 # Warnung-Ausgabe
 function warn() {
-    echo -e "\e[33m$1\e[0m"
+    echo -e "${YELLOW}$1${NC}"
 }
 
 # Konfiguration laden
@@ -65,6 +72,10 @@ function load_config() {
     CPU_LIMIT="${CPU_LIMIT:-4}"
     TGI_DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-tgi-server}"
     TGI_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
+    # Neue Option: Sharding für Multi-GPU deaktivieren (Standard: aktiv)
+    DISABLE_TGI_SHARDING="${DISABLE_TGI_SHARDING:-false}"
+    # Option um den NVIDIA_VISIBLE_DEVICES zu überschreiben
+    FORCE_NVIDIA_VISIBLE_DEVICES="${FORCE_NVIDIA_VISIBLE_DEVICES:-${CUDA_VISIBLE_DEVICES:-all}}"
 
     # Dynamische Anpassung von dshm basierend auf GPU-Anzahl
     if [[ "$USE_GPU" == "true" ]] && [[ "$GPU_COUNT" -gt 1 ]]; then
@@ -100,6 +111,17 @@ function check_model_access() {
     return 0
 }
 
+# GPU-Konfiguration ausgeben
+function show_gpu_config() {
+    local count="$1"
+    
+    if [[ "$USE_GPU" == "true" ]] && [[ "$count" -gt 1 ]]; then
+        info "Multi-GPU Konfiguration: $count GPUs"
+    else
+        info "Single-GPU Konfiguration"
+    fi
+}
+
 # CUDA Devices-String generieren
 function prepare_cuda_devices() {
     local count="$1"
@@ -109,9 +131,6 @@ function prepare_cuda_devices() {
         for ((i=1; i<count; i++)); do
             devices="${devices},$i"
         done
-        info "Multi-GPU Konfiguration: $count GPUs (CUDA Devices: $devices)"
-    else
-        info "Single-GPU Konfiguration"
     fi
     
     echo "$devices"
@@ -196,10 +215,14 @@ function generate_tgi_manifest() {
     local hf_token="$9"
     local api_key="${10}"
     local output_file="${11}"
+    local disable_sharding="${12}"
+    local force_nvidia_devices="${13}"
     
     # Bedingungen für Features
     local use_sharded=false
-    [[ "$USE_GPU" == "true" ]] && [[ "$gpu_count" -gt 1 ]] && use_sharded=true
+    if [[ "$USE_GPU" == "true" ]] && [[ "$gpu_count" -gt 1 ]] && [[ "$disable_sharding" != "true" ]]; then
+        use_sharded=true
+    fi
     
     # Erstelle Manifest
     cat > "$output_file" << EOF
@@ -280,6 +303,12 @@ EOF
         env:
         - name: CUDA_VISIBLE_DEVICES
           value: "${cuda_devices}"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "${force_nvidia_devices}"
+        - name: CUDA_DEVICE_ORDER
+          value: "PCI_BUS_ID"
+        - name: CUDA_FORCE_DEVICE_INDEX
+          value: "0"
         - name: NCCL_DEBUG
           value: "${NCCL_DEBUG}"
         - name: NCCL_DEBUG_SUBSYS
@@ -343,6 +372,7 @@ EOF
           requests:
             memory: "4Gi"
             cpu: "2"
+            nvidia.com/gpu: ${gpu_count}
         volumeMounts:
         - name: model-cache
           mountPath: /data
@@ -399,6 +429,7 @@ function display_summary() {
     local deployment_name="$4"
     local api_key="$5"
     local gpu_count="$6"
+    local disable_sharding="$7"
     
     echo
     success "✅ TGI Deployment erfolgreich gestartet"
@@ -408,7 +439,11 @@ function display_summary() {
     echo "🛡️ API-Schlüssel: $([ -n "$api_key" ] && echo "Konfiguriert" || echo "Nicht konfiguriert (ungeschützt)")"
     
     if [ "$gpu_count" -gt 1 ]; then
-        echo "🖥️ Multi-GPU Konfiguration: $gpu_count GPUs im Sharded Mode"
+        if [ "$disable_sharding" == "true" ]; then
+            echo "🖥️ Multi-GPU Konfiguration: $gpu_count GPUs (Sharding deaktiviert)"
+        else
+            echo "🖥️ Multi-GPU Konfiguration: $gpu_count GPUs im Sharded Mode"
+        fi
     else
         echo "🖥️ Single-GPU Konfiguration"
     fi
@@ -425,6 +460,78 @@ function display_summary() {
     echo
     echo "🔗 Externer Zugriff (Port-Forwarding):"
     echo "kubectl -n $namespace port-forward svc/$service_name 8000:8000"
+}
+
+# Hilfsdaten für GPU-Bereitstellung erstellen
+function create_gpu_helper_configmap() {
+    local namespace="$1"
+    
+    # Skript zum Testen der GPU-Erkennung
+    local test_script=$(cat << 'EOF'
+#!/bin/bash
+echo "======= GPU-ERKENNUNG TESTHILFE ======="
+echo "Prüfe GPU-Verfügbarkeit im Container..."
+echo
+
+# Umgebungsvariablen anzeigen
+echo "UMGEBUNGSVARIABLEN:"
+echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+echo "NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES"
+echo
+
+# Versuche nvidia-smi auszuführen
+echo "NVIDIA-SMI OUTPUT:"
+if command -v nvidia-smi &> /dev/null; then
+    nvidia-smi
+else
+    echo "nvidia-smi nicht gefunden! NVIDIA-Treiber möglicherweise nicht verfügbar."
+fi
+echo
+
+# Versuche CUDA-Verfügbarkeit zu testen
+echo "CUDA VERFÜGBARKEIT TEST:"
+python3 -c "import torch; print(f'PyTorch Version: {torch.__version__}'); print(f'CUDA verfügbar: {torch.cuda.is_available()}'); print(f'CUDA Geräte: {torch.cuda.device_count()}'); [print(f'  - GPU {i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]" || echo "PyTorch Test fehlgeschlagen"
+echo
+
+echo "======= TEST ABGESCHLOSSEN ======="
+EOF
+)
+
+    # ConfigMap erstellen
+    kubectl -n "$namespace" apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-helper-scripts
+  namespace: ${namespace}
+data:
+  test-gpu.sh: |
+    ${test_script}
+EOF
+    
+    success "GPU-Hilfsskripte erstellt"
+}
+
+# GPU-Bereitstellung testen
+function test_gpu_deployment() {
+    local namespace="$1"
+    local deployment_name="$2"
+    
+    info "Teste GPU-Erkennung im TGI-Deployment..."
+    
+    # Warte kurz, damit das Deployment Zeit hat zu starten
+    sleep 5
+    
+    # Prüfe, ob das Deployment vorhanden ist
+    if ! kubectl -n "$namespace" get deployment "$deployment_name" &> /dev/null; then
+        warn "Deployment '$deployment_name' nicht gefunden. Test kann nicht durchgeführt werden."
+        return 1
+    fi
+    
+    # Führe Test im Container aus
+    kubectl -n "$namespace" exec deployment/"$deployment_name" -c tgi -- sh -c 'echo "GPU-Test: NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES"; nvidia-smi 2>/dev/null || echo "nvidia-smi fehlgeschlagen, keine GPUs erkannt"'
+    
+    info "GPU-Test abgeschlossen. Bitte prüfen Sie die Ausgabe oben."
 }
 
 # ============================================================================
@@ -452,15 +559,33 @@ load_config "$CONFIG_FILE"
 # Parameter prüfen
 check_model_access "$MODEL_NAME" "$HUGGINGFACE_TOKEN"
 
+# GPU-Konfiguration ausgeben
+show_gpu_config "$GPU_COUNT"
+
 # CUDA Devices vorbereiten
 CUDA_DEVICES=$(prepare_cuda_devices "$GPU_COUNT")
 
 # Bestehende Ressourcen entfernen
 cleanup_resources "$NAMESPACE" "$TGI_DEPLOYMENT_NAME" "$TGI_SERVICE_NAME"
 
+# Hilfsdaten für GPU-Bereitstellung erstellen
+create_gpu_helper_configmap "$NAMESPACE"
+
 # Secrets erstellen
 create_huggingface_secret "$NAMESPACE" "$HUGGINGFACE_TOKEN"
 create_api_key_secret "$NAMESPACE" "$TGI_API_KEY"
+
+# Status des Shardings anzeigen
+if [[ "$DISABLE_TGI_SHARDING" == "true" ]]; then
+    if [[ "$GPU_COUNT" -gt 1 ]]; then
+        warn "Mehrere GPUs verfügbar, aber TGI Sharding wurde deaktiviert!"
+        warn "Dies kann Leistungseinbußen für große Modelle bedeuten."
+    fi
+else
+    if [[ "$GPU_COUNT" -gt 1 ]]; then
+        info "TGI Sharding ist aktiviert für Multi-GPU Deployment"
+    fi
+fi
 
 # Deployment-Konfiguration
 info "Deployment-Informationen:"
@@ -473,6 +598,12 @@ info "CUDA Memory Fraction: $CUDA_MEMORY_FRACTION"
 info "Speicherlimits: Input $MAX_INPUT_LENGTH, Total $MAX_TOTAL_TOKENS Tokens"
 info "NCCL Konfiguration: DEBUG=$NCCL_DEBUG, P2P=$NCCL_P2P_DISABLE, IB=$NCCL_IB_DISABLE"
 info "Shared Memory (dshm): $DSHM_SIZE"
+if [[ "$DISABLE_TGI_SHARDING" == "true" ]]; then
+    info "TGI Sharding: Deaktiviert"
+else
+    info "TGI Sharding: Aktiviert (wenn mehrere GPUs verfügbar)"
+fi
+info "NVIDIA_VISIBLE_DEVICES: ${FORCE_NVIDIA_VISIBLE_DEVICES}"
 info "------------------------"
 
 # Manifest generieren
@@ -490,12 +621,41 @@ generate_tgi_manifest \
     "$GPU_TYPE" \
     "$HUGGINGFACE_TOKEN" \
     "$TGI_API_KEY" \
-    "$TMP_FILE"
+    "$TMP_FILE" \
+    "$DISABLE_TGI_SHARDING" \
+    "$FORCE_NVIDIA_VISIBLE_DEVICES"
+
+# Optional: YAML-Manifest anzeigen
+if [[ "${SHOW_MANIFEST:-false}" == "true" ]]; then
+    info "Generiertes Kubernetes-Manifest:"
+    cat "$TMP_FILE"
+    echo
+    read -p "Weiter mit Deployment? [J/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[JjYy]$ ]] && [[ ! -z $REPLY ]]; then
+        info "Deployment abgebrochen."
+        exit 0
+    fi
+fi
 
 # Deployment anwenden
 apply_deployment "$TMP_FILE" "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
 
+# GPU-Test durchführen
+test_gpu_deployment "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
+
 # Erfolgsinformationen anzeigen
-display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY" "$GPU_COUNT"
+display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY" "$GPU_COUNT" "$DISABLE_TGI_SHARDING"
+
+# Hinweise für Probleme mit GPU-Erkennung
+echo
+info "HINWEISE BEI GPU-PROBLEMEN:"
+echo "- Falls TGI Probleme mit der GPU-Erkennung hat, probieren Sie:"
+echo "  1. In config.sh: export FORCE_NVIDIA_VISIBLE_DEVICES=\"all\" oder \"0,1,...\""
+echo "  2. In config.sh: export QUANTIZATION=\"\" (keine Quantisierung verwenden)"
+echo "  3. In config.sh: export DISABLE_TGI_SHARDING=true (bei Multi-GPU)"
+echo "  4. Ein anderes Modell probieren, z.B. \"Microsoft/phi-2\" (nicht quantisiert)"
+echo "- Überprüfen Sie die GPU-Erkennung mit:"
+echo "  kubectl -n $NAMESPACE exec deployment/$TGI_DEPLOYMENT_NAME -c tgi -- nvidia-smi"
 
 exit 0
