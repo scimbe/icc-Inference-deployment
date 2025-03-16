@@ -58,7 +58,6 @@ function load_config() {
     GPU_TYPE="${GPU_TYPE:-gpu-tesla-v100}"
     BLOCK_SIZE="${BLOCK_SIZE:-16}"
     SWAP_SPACE="${SWAP_SPACE:-4}"
-    MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-32}"
     MAX_TOTAL_TOKENS="${MAX_TOTAL_TOKENS:-4096}"
     DSHM_SIZE="${DSHM_SIZE:-8Gi}"
     MEMORY_LIMIT="${MEMORY_LIMIT:-16Gi}"
@@ -163,7 +162,20 @@ function generate_vllm_args() {
     fi
     
     # Memory-Optimierung
-    args="$args --max-model-len ${MAX_TOTAL_TOKENS} --block-size ${BLOCK_SIZE} --swap-space ${SWAP_SPACE} --max-batch-size ${MAX_BATCH_SIZE}"
+    args="$args --max-model-len ${MAX_TOTAL_TOKENS} --block-size ${BLOCK_SIZE} --swap-space ${SWAP_SPACE}"
+    
+    # Prüfe, ob max-batch-size unterstützt wird
+    if command -v vllm &> /dev/null; then
+        if vllm --help | grep -q "max-batch-size"; then
+            # max-batch-size wird unterstützt
+            args="$args --max-batch-size ${MAX_BATCH_SIZE:-32}"
+        else
+            warn "Der Parameter --max-batch-size wird in Ihrer vLLM-Version nicht unterstützt und wird übersprungen."
+        fi
+    else
+        # Wir können nicht prüfen, ob es unterstützt wird, also lassen wir es weg
+        warn "Der Parameter --max-batch-size wird möglicherweise nicht unterstützt und wird übersprungen."
+    fi
     
     # JSON-formatierte Argumente erstellen
     local json_args="["
@@ -380,7 +392,6 @@ info "Tensor Parallel Size: $GPU_COUNT"
 info "Max Model Length: $MAX_TOTAL_TOKENS"
 info "Block Size: $BLOCK_SIZE"
 info "Swap Space: $SWAP_SPACE GB"
-info "Max Batch Size: $MAX_BATCH_SIZE"
 info "------------------------"
 
 # Manifest generieren
