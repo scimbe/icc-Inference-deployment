@@ -145,6 +145,19 @@ Shard process was signaled to shutdown with signal 9
 - TGI-Version überprüfen: `kubectl -n $NAMESPACE describe pod -l app=llm-server | grep Image`
 - Minimales Deployment testen: `./scripts/deploy-tgi-minimal.sh`
 
+#### vLLM Befehlszeilenargumente-Fehler
+
+**Symptom:**
+```
+api_server.py: error: unrecognized arguments: --max-batch-size 32
+```
+
+**Lösungen:**
+- Das aktuelle vLLM-Deployment-Skript erkennt automatisch, wenn `--max-batch-size` nicht unterstützt wird und überspringt den Parameter
+- Falls der Fehler trotzdem auftritt, bearbeiten Sie `config.sh` und kommentieren Sie die Zeile `export MAX_BATCH_SIZE=32` aus
+- Alternativ reduzieren Sie die Batch-Größe: `export MAX_BATCH_SIZE=8`
+- Neuere vLLM-Versionen benötigen möglicherweise andere Parameter. Überprüfen Sie die vLLM-Dokumentation für Ihre Version
+
 ## 📊 Modellempfehlungen für V100 GPUs
 
 | Modellgröße | GPU-Setup | Quantisierung | Empfohlene Modelle |
