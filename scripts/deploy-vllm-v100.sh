@@ -15,25 +15,32 @@ set -eo pipefail
 # Funktionen
 # ============================================================================
 
+# Farbcodes für Terminal-Ausgaben (ANSI-kompatibel für macOS und Linux)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
 # Fehlerbehandlung
 function error() {
-    echo -e "\e[31mFEHLER: $1\e[0m" >&2
+    echo -e "${RED}FEHLER: $1${NC}" >&2
     exit 1
 }
 
 # Info-Ausgabe
 function info() {
-    echo -e "\e[34m$1\e[0m"
+    echo -e "${BLUE}$1${NC}"
 }
 
 # Erfolgs-Ausgabe
 function success() {
-    echo -e "\e[32m$1\e[0m"
+    echo -e "${GREEN}$1${NC}"
 }
 
 # Warnung-Ausgabe
 function warn() {
-    echo -e "\e[33m$1\e[0m"
+    echo -e "${YELLOW}$1${NC}"
 }
 
 # Konfiguration laden
@@ -228,15 +235,21 @@ EOF
         - "${SWAP_SPACE}"
 EOF
 
-    # Prüfe, ob max-batch-size unterstützt wird
-    if [ -n "${MAX_BATCH_SIZE}" ]; then
+    # max-num-seqs verwenden statt max-batch-size (neueres vLLM API)
+    if [ -n "${MAX_CONCURRENT_REQUESTS}" ]; then
         cat >> "$output_file" << EOF
-        - "--max-batch-size"
+        - "--max-num-seqs"
+        - "${MAX_CONCURRENT_REQUESTS}"
+EOF
+    elif [ -n "${MAX_BATCH_SIZE}" ]; then
+        warn "WARNUNG: Parameter MAX_BATCH_SIZE wird umbenannt in MAX_NUM_SEQS für Kompatibilität mit neuerer vLLM-Version"
+        cat >> "$output_file" << EOF
+        - "--max-num-seqs"
         - "${MAX_BATCH_SIZE}"
 EOF
     fi
 
-    # Container Environment fortstetzen
+    # Container Environment fortsetzen
     cat >> "$output_file" << EOF
         env:
         - name: CUDA_VISIBLE_DEVICES
