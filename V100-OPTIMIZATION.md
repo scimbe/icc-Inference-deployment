@@ -77,6 +77,10 @@ Text Generation Inference (TGI) kann für V100 GPUs spezifisch optimiert werden:
 | `--max-total-tokens` | 4096 | Limitierte kombinierte Token-Anzahl |
 | `--max-batch-prefill-tokens` | 4096 | Verhindert Speicherüberlastung beim Batch-Prefill |
 | `--disable-custom-kernels` | true | Sorgt für bessere Kompatibilität mit V100 |
+| `--max-parallel-loading-workers` | GPU_COUNT | Optimiert paralleles Laden im Multi-GPU-Setup |
+| `--max-concurrent-requests` | 8 × GPU_COUNT | Skaliert mit der GPU-Anzahl für optimalen Durchsatz |
+| `--sharded` | true | Aktiviert bei Multi-GPU für parallele Verarbeitung |
+| `--num-shard` | GPU_COUNT | Sorgt für optimale Parallelisierung |
 
 ### CUDA-Umgebungsvariablen
 
@@ -84,8 +88,12 @@ Text Generation Inference (TGI) kann für V100 GPUs spezifisch optimiert werden:
 # Kritische Einstellungen
 CUDA_VISIBLE_DEVICES="0,1"    # GPUs explizit definieren
 NCCL_DEBUG="INFO"             # Debug-Informationen für Multi-GPU
-NCCL_SOCKET_IFNAME="^lo,docker" # Socket-Interface für NCCL
+NCCL_DEBUG_SUBSYS="ALL"       # Detaillierte Subsystem-Infos
+NCCL_P2P_DISABLE="0"          # Peer-to-Peer-Kommunikation erlauben
+NCCL_IB_DISABLE="0"           # InfiniBand-Kommunikation erlauben
 NCCL_P2P_LEVEL="NVL"          # Optimale Peer-to-Peer-Kommunikation
+NCCL_SOCKET_IFNAME="^lo,docker" # Socket-Interface für NCCL
+NCCL_SHM_DISABLE="0"          # Shared Memory nutzen
 ```
 
 ### Shared Memory Optimierung
@@ -95,8 +103,8 @@ Die Default-Shared-Memory-Größe von Docker ist oft zu gering für Multi-GPU-In
 | GPU-Anzahl | Empfohlene DSHM-Größe |
 |------------|----------------------|
 | 1 GPU | 4Gi - 8Gi |
-| 2 GPUs | 8Gi - 12Gi |
-| 4 GPUs | 16Gi |
+| 2 GPUs | 8Gi - 16Gi |
+| 4 GPUs | 16Gi - 32Gi |
 
 Diese wird in der K8s-Konfiguration über das dshm-Volume festgelegt.
 
@@ -111,7 +119,7 @@ vLLM bietet teilweise bessere Performance als TGI, erfordert aber spezifische Ko
 | `--block-size` | 16 | Optimale Blockgröße für die Speicherverwaltung |
 | `--swap-space` | 4 | Erlaubt Paging zwischen CPU und GPU |
 | `--max-model-len` | ≤4096 | Kontext-Limit auf V100 |
-| `--tensor-parallel-size` | GPU-Anzahl | Für Multi-GPU-Sharding |
+| `--tensor-parallel-size` | GPU_COUNT | Für Multi-GPU-Sharding |
 
 ### PagedAttention
 
@@ -123,25 +131,35 @@ vLLM verwendet PagedAttention, eine speichereffiziente Technik. Auf V100 sollten
 
 ## Multi-GPU-Konfigurationen
 
-Für größere Modelle empfehlen wir die Nutzung mehrerer GPUs im Sharded-Modus:
+Für größere Modelle empfehlen wir die Nutzung mehrerer GPUs:
 
-### TGI Multi-GPU
+### TGI Multi-GPU (Sharded Mode)
 
-```
---sharded=true       # Aktiviert Modell-Sharding
-```
+Im TGI-Sharded-Modus wird das Modell auf mehrere GPUs aufgeteilt, wobei jede GPU einen Teil der Modellgewichte hält:
 
-### vLLM Multi-GPU
+- **Konfiguration**: `--sharded=true --num-shard=<GPU_COUNT>`
+- **Worker-Optimierung**: `--max-parallel-loading-workers=<GPU_COUNT>`
+- **Durchsatz-Optimierung**: `--max-concurrent-requests=<8 × GPU_COUNT>`
+- **Shared Memory**: DSHM-Größe proportional zur GPU-Anzahl skalieren (`<8 × GPU_COUNT>Gi`)
 
-```
---tensor-parallel-size=N  # N = Anzahl GPUs
-```
+TGI nutzt den Sharded-Modus, um das Modell horizontal zu teilen, was besonders für große Modelle (13B+) auf V100s effektiv ist.
+
+### vLLM Multi-GPU (Tensor Parallel)
+
+vLLM verwendet Tensor-Parallelismus, um die Berechnungen auf mehrere GPUs zu verteilen:
+
+- **Konfiguration**: `--tensor-parallel-size=<GPU_COUNT>`
+- **Speicheroptimierung**: `--block-size=16 --swap-space=4`
+- **NCCL-Optimierung**: Wichtig für effiziente Kommunikation zwischen GPUs
+
+Der Tensor-Parallelismus in vLLM eignet sich besonders für Szenarien mit hohem Durchsatz und kann die GPU-Auslastung im Vergleich zum Sharded-Modus von TGI verbessern.
 
 ### V100-spezifische Multi-GPU-Optimierungen
 
 - **NCCL-Umgebungsvariablen** sind entscheidend für stabile Multi-GPU-Performance
 - **Alle GPUs müssen auf demselben Knoten** sein, Node-übergreifendes Sharding wird nicht unterstützt
 - **Shared Memory (dshm)** muss ausreichend groß sein für Inter-GPU-Kommunikation
+- **dshm-Größe skaliert automatisch** mit der GPU-Anzahl in unseren Deployment-Skripten
 
 ## Quantisierungstechniken
 
@@ -163,11 +181,14 @@ Diese reduziert den Speicherbedarf um ca. 75% mit minimalem Qualitätsverlust. E
 --quantize=gptq
 ```
 
-Alternative Quantisierungsmethode, bei manchen Modellen verfügbar.
+Alternative Quantisierungsmethode mit guter Leistung, besonders bei vorquantisierten Modellen wie TheBloke's GPTQ-Varianten. Vorteile:
+- Größere Community-Unterstützung
+- Mehr vorquantisierte Modelle verfügbar
+- Gute Balance zwischen Qualität und Geschwindigkeit
 
 ### Vergleich: Speicheranforderungen
 
-| Modellgröße | Standard (BF16) | AWQ | GPUs für Standard | GPUs für AWQ |
+| Modellgröße | Standard (BF16) | AWQ/GPTQ | GPUs für Standard | GPUs für AWQ/GPTQ |
 |-------------|----------------|-----|------------------|-------------|
 | 7B | ~14 GB | ~4 GB | 1 | 1 |
 | 13B | ~26 GB | ~7 GB | 2 | 1 |
@@ -183,7 +204,8 @@ Alternative Quantisierungsmethode, bei manchen Modellen verfügbar.
 ./scripts/monitor-gpu.sh
 
 # Logs auf Fehler analysieren
-./scripts/check-logs.sh tgi -a
+./scripts/check-logs.sh tgi -a   # für TGI
+./scripts/check-logs.sh vllm -a  # für vLLM
 
 # GPU-Funktionalität testen
 ./scripts/test-gpu.sh
@@ -200,28 +222,35 @@ Alternative Quantisierungsmethode, bei manchen Modellen verfügbar.
 | `Shard process shutdown` | OOM-Killer | Reduzierte Batchgröße, kleinere Kontextlänge |
 | `NCCL error` | Multi-GPU-Kommunikation | NCCL-Variablen prüfen, shared memory erhöhen |
 | `no kernel image` | Inkompatible CUDA-Kernel | Custom Kernels deaktivieren |
+| `unrecognized arguments` | Parameterinkompatibilität | Parameter überprüfen, aktualisieren oder entfernen |
 
 ## Modellspezifische Empfehlungen
 
 ### Optimale Konfigurationen für V100
 
-| Modell | Empfohlene Konfiguration | max_tokens | Quantisierung |
-|--------|--------------------------|------------|---------------|
-| microsoft/phi-2 | 1 GPU | 4096 | Keine notwendig |
-| mistralai/Mistral-7B | 1 GPU | 4096 | AWQ |
-| meta-llama/Llama-2-7b | 1 GPU | 4096 | AWQ |
-| meta-llama/Llama-2-13b | 2 GPUs | 4096 | AWQ (optional) |
-| mistralai/Mixtral-8x7B | 4 GPUs | 2048 | AWQ |
-| meta-llama/Llama-2-70b | Nicht empfohlen für V100 | - | - |
+| Modell | Empfohlene Konfiguration | max_tokens | Quantisierung | Multi-GPU |
+|--------|--------------------------|------------|---------------|-----------|
+| microsoft/phi-2 | 1 GPU | 4096 | Keine notwendig | Nein |
+| google/gemma-2b | 1 GPU | 4096 | Keine notwendig | Nein |
+| TheBloke/Mistral-7B-Instruct-v0.2-GPTQ | 1 GPU | 4096 | GPTQ | Nein |
+| mistralai/Mistral-7B | 1 GPU | 4096 | AWQ | Nein |
+| meta-llama/Llama-2-7b | 1 GPU | 4096 | AWQ | Nein |
+| TheBloke/Llama-2-13b-chat-GPTQ | 1-2 GPUs | 4096 | GPTQ | Optional |
+| meta-llama/Llama-2-13b | 2 GPUs | 4096 | AWQ (optional) | Ja |
+| mistralai/Mixtral-8x7B | 4 GPUs | 2048 | AWQ | Ja |
+| TheBloke/Mixtral-8x7B-Instruct-v0.1-GPTQ | 2 GPUs | 2048 | GPTQ | Ja |
+| meta-llama/Llama-2-70b | Nicht empfohlen für V100 | - | - | - |
 
-### Engine-Vergleich: TGI vs vLLM
+### Engine-Vergleich: TGI vs vLLM für V100
 
 | Modelltyp | Beste Engine | Grund |
 |-----------|-------------|-------|
-| <7B Modelle | TGI | Einfachere Konfiguration |
-| 7-13B Modelle | vLLM oder TGI | vLLM: schneller, TGI: besser optimiert |
-| MoE-Modelle | TGI | Bessere Unterstützung für Mixture-of-Experts |
-| Quantisierte Modelle | TGI | Bessere AWQ-Integration |
+| <7B Modelle | TGI oder vLLM | Beide funktionieren gut, TGI einfacher zu konfigurieren |
+| 7-13B Modelle | vLLM für Durchsatz, TGI für Stabilität | vLLM: besserer Durchsatz, TGI: stabilere Multiuser-Unterstützung |
+| MoE-Modelle (Mixtral) | TGI | Bessere Unterstützung für Mixture-of-Experts |
+| Quantisierte GPTQ-Modelle | vLLM | Bessere GPTQ-Integration |
+| Quantisierte AWQ-Modelle | TGI | Bessere AWQ-Integration |
+| Multi-GPU-Performance | vLLM leichter Vorteil | Tensor-Parallelismus kann effizienter sein als Sharding |
 
 ### Performance-Vergleich
 
@@ -229,8 +258,12 @@ Alternative Quantisierungsmethode, bei manchen Modellen verfügbar.
 |--------|--------|---------------|----------------|-------------------|
 | Mistral-7B | TGI | 1 GPU, AWQ | ~30-40 | ~300ms |
 | Mistral-7B | vLLM | 1 GPU, Standard | ~40-50 | ~250ms |
+| Mistral-7B-GPTQ | vLLM | 1 GPU, GPTQ | ~35-45 | ~275ms |
 | Llama-2-13b | TGI | 2 GPUs, Sharded | ~25-35 | ~500ms |
 | Llama-2-13b | vLLM | 2 GPUs, TP=2 | ~30-40 | ~450ms |
+| Llama-2-13b-GPTQ | vLLM | 1 GPU, GPTQ | ~25-35 | ~400ms |
+| Mixtral-8x7B | TGI | 4 GPUs, Sharded | ~20-30 | ~600ms |
+| Mixtral-8x7B-GPTQ | vLLM | 2 GPUs, TP=2, GPTQ | ~25-35 | ~550ms |
 
 ## Erweiterte Optimierungen
 
@@ -262,8 +295,33 @@ Für TGI können Sie Flash Attention und andere Optimierungen deaktivieren:
 
 V100 GPUs können bei anhaltender Belastung heiß werden. Achten Sie auf Temperaturen über 80°C und überlegen Sie, `CUDA_MEMORY_FRACTION` zu reduzieren, wenn die GPUs überhitzen.
 
+### Optimierungen für spezifische NCCL-Probleme
+
+Falls Sie NCCL-Kommunikationsprobleme beobachten:
+
+1. **P2P-Kommunikation deaktivieren**, wenn mehrere GPUs auf separaten PCIe-Switches liegen:
+   ```bash
+   export NCCL_P2P_DISABLE=1
+   ```
+
+2. **IB-Kommunikation deaktivieren**, wenn InfiniBand nicht optimal konfiguriert ist:
+   ```bash
+   export NCCL_IB_DISABLE=1
+   ```
+
+3. **Socket-Interface explizit angeben**, wenn Docker-Netzwerk Probleme bereitet:
+   ```bash
+   export NCCL_SOCKET_IFNAME="eth0"  # oder entsprechendes Interface
+   ```
+
+4. **Debugging aktivieren** für detaillierte Diagnose:
+   ```bash
+   export NCCL_DEBUG=INFO
+   export NCCL_DEBUG_SUBSYS=ALL
+   ```
+
 ## Schlussfolgerung
 
 Die V100 GPU ist nach wie vor ein leistungsfähiger Kandidat für LLM-Inferenz, benötigt jedoch sorgfältige Optimierung und Konfiguration, besonders für größere Modelle. Mit den richtigen Einstellungen und Quantisierungstechniken können Sie bis zu 13B-Modelle effizient ausführen, während größere Modelle wahrscheinlich neuere GPU-Generationen erfordern.
 
-Die in diesem Dokument beschriebenen Optimierungen sind in den Skripten dieses Repositories bereits implementiert und können durch einfache Konfigurationsänderungen angepasst werden.
+Die in diesem Dokument beschriebenen Optimierungen sind in den Skripten dieses Repositories bereits implementiert und können durch einfache Konfigurationsänderungen angepasst werden. Die Deployments sind sowohl für TGI als auch für vLLM optimiert, mit besonderem Fokus auf Multi-GPU-Konfigurationen und parallele Ausführung.
