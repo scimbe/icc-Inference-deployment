@@ -26,8 +26,8 @@ Eine umfassende Lösung für das Deployment von Large Language Models (LLMs) auf
 
 ```bash
 # Repository klonen
-git clone https://github.com/scimbe/icc-llm-deployment.git
-cd icc-llm-deployment
+git clone https://github.com/scimbe/icc-Inference-deployment.git
+cd icc-Inference-deployment
 
 # Berechtigung setzen
 chmod +x scripts/*.sh
@@ -100,7 +100,7 @@ Eine vollständige Befehlsreferenz finden Sie in [COMMANDS.md](COMMANDS.md).
 ## 📁 Projektstruktur
 
 ```
-icc-llm-deployment/
+icc-Inference-deployment/
 ├── configs/                # Konfigurationen
 │   ├── config.v100.sh      # V100-optimierte Konfiguration
 │   └── config.example.sh   # Beispielkonfiguration
