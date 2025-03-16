@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# TGI Deployment Script für V100 GPUs
+# vLLM Deployment Script für V100 GPUs
 # ============================================================================
 # Autor: HAW Hamburg ICC Team
 # Version: 2.0.0
 # 
-# Dieses Skript erstellt ein optimiertes Text Generation Inference Deployment
-# mit V100-spezifischen Einstellungen auf der ICC Kubernetes-Plattform.
+# Dieses Skript erstellt ein optimiertes vLLM Deployment mit V100-spezifischen
+# Einstellungen auf der ICC Kubernetes-Plattform.
 # ============================================================================
 
 set -eo pipefail
@@ -56,14 +56,17 @@ function load_config() {
     USE_GPU="${USE_GPU:-true}"
     GPU_COUNT="${GPU_COUNT:-1}"
     GPU_TYPE="${GPU_TYPE:-gpu-tesla-v100}"
-    CUDA_MEMORY_FRACTION="${CUDA_MEMORY_FRACTION:-0.85}"
-    MAX_INPUT_LENGTH="${MAX_INPUT_LENGTH:-2048}"
+    BLOCK_SIZE="${BLOCK_SIZE:-16}"
+    SWAP_SPACE="${SWAP_SPACE:-4}"
+    MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-32}"
     MAX_TOTAL_TOKENS="${MAX_TOTAL_TOKENS:-4096}"
     DSHM_SIZE="${DSHM_SIZE:-8Gi}"
     MEMORY_LIMIT="${MEMORY_LIMIT:-16Gi}"
     CPU_LIMIT="${CPU_LIMIT:-4}"
-    TGI_DEPLOYMENT_NAME="${TGI_DEPLOYMENT_NAME:-tgi-server}"
-    TGI_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
+    
+    # vLLM-spezifische Namen falls nicht definiert
+    VLLM_DEPLOYMENT_NAME="${VLLM_DEPLOYMENT_NAME:-vllm-server}"
+    VLLM_SERVICE_NAME="${VLLM_SERVICE_NAME:-vllm-service}"
 }
 
 # Modell-Zugriff prüfen
@@ -140,49 +143,58 @@ data:
 EOF
 }
 
-# Secret für API-Schlüssel erstellen
-function create_api_key_secret() {
-    local namespace="$1"
-    local api_key="$2"
+# vLLM Argumente generieren
+function generate_vllm_args() {
+    local model="$1"
+    local gpu_count="$2"
+    local quantization="$3"
     
-    if [[ -z "$api_key" ]]; then
-        warn "Kein TGI API-Key konfiguriert. Die API ist nicht geschützt!"
-        return 0
+    # Basis-Argumente
+    local args="--model ${model} --host 0.0.0.0 --port 8000"
+    
+    # Quantisierung hinzufügen (falls konfiguriert)
+    if [[ -n "$quantization" ]]; then
+        args="$args --quantization ${quantization}"
     fi
     
-    local key_base64
-    key_base64=$(echo -n "$api_key" | base64)
-    success "TGI API-Key konfiguriert ✓"
+    # Multi-GPU Konfiguration
+    if [[ "$USE_GPU" == "true" ]] && [[ "$gpu_count" -gt 1 ]]; then
+        args="$args --tensor-parallel-size ${gpu_count}"
+    fi
     
-    kubectl -n "$namespace" apply -f - <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: tgi-api-key
-  namespace: ${namespace}
-type: Opaque
-data:
-  token: ${key_base64}
-EOF
+    # Memory-Optimierung
+    args="$args --max-model-len ${MAX_TOTAL_TOKENS} --block-size ${BLOCK_SIZE} --swap-space ${SWAP_SPACE} --max-batch-size ${MAX_BATCH_SIZE}"
+    
+    # JSON-formatierte Argumente erstellen
+    local json_args="["
+    
+    # Argumente aufteilen und als JSON-Array formatieren
+    IFS=' ' read -ra ARGS_ARRAY <<< "$args"
+    for i in "${!ARGS_ARRAY[@]}"; do
+        arg="${ARGS_ARRAY[$i]}"
+        json_args+="\"$arg\""
+        
+        # Komma hinzufügen, wenn nicht das letzte Element
+        if (( i < ${#ARGS_ARRAY[@]} - 1 )); then
+            json_args+=", "
+        fi
+    done
+    
+    json_args+="]"
+    echo "$json_args"
 }
 
 # Manifest generieren
-function generate_tgi_manifest() {
+function generate_vllm_manifest() {
     local namespace="$1"
     local deployment_name="$2"
     local service_name="$3"
-    local model="$4"
-    local cuda_devices="$5"
-    local quantization="$6"
-    local gpu_count="$7"
-    local gpu_type="$8"
-    local hf_token="$9"
-    local api_key="${10}"
-    local output_file="${11}"
-    
-    # Bedingungen für Features
-    local use_sharded=false
-    [[ "$USE_GPU" == "true" ]] && [[ "$gpu_count" -gt 1 ]] && use_sharded=true
+    local cuda_devices="$4"
+    local gpu_count="$5"
+    local gpu_type="$6"
+    local vllm_args="$7"
+    local hf_token="$8"
+    local output_file="$9"
     
     # Erstelle Manifest
     cat > "$output_file" << EOF
@@ -192,63 +204,26 @@ metadata:
   name: ${deployment_name}
   namespace: ${namespace}
   labels:
-    app: llm-server
+    service: vllm-server
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
-      app: llm-server
+      service: vllm-server
   template:
     metadata:
       labels:
-        app: llm-server
+        service: vllm-server
     spec:
       tolerations:
       - key: "${gpu_type}"
         operator: "Exists"
         effect: "NoSchedule"
       containers:
-      - name: tgi
-        image: ghcr.io/huggingface/text-generation-inference:latest
+      - name: vllm
+        image: vllm/vllm-openai:latest
         imagePullPolicy: IfNotPresent
-        command:
-        - "text-generation-launcher"
-        args:
-        - "--model-id=${model}"
-        - "--port=8000"
-EOF
-
-    # Quantisierung oder Dtype (nicht beides)
-    if [[ -n "$quantization" ]]; then
-        cat >> "$output_file" << EOF
-        - "--quantize=${quantization}"
-EOF
-    else
-        cat >> "$output_file" << EOF
-        - "--dtype=float16"
-EOF
-    fi
-
-    # V100-optimierte Parameter
-    cat >> "$output_file" << EOF
-        - "--max-input-length=${MAX_INPUT_LENGTH}"
-        - "--max-total-tokens=${MAX_TOTAL_TOKENS}"
-        - "--max-batch-prefill-tokens=${MAX_BATCH_PREFILL_TOKENS:-4096}"
-        - "--cuda-memory-fraction=${CUDA_MEMORY_FRACTION}"
-        - "--max-concurrent-requests=${MAX_CONCURRENT_REQUESTS:-$((8 * (gpu_count > 0 ? gpu_count : 1)))}"
-EOF
-
-    # Multi-GPU Unterstützung
-    if [[ "$use_sharded" == true ]]; then
-        cat >> "$output_file" << EOF
-        - "--sharded=true"
-EOF
-    fi
-
-    # Umgebungsvariablen
-    cat >> "$output_file" << EOF
+        args: ${vllm_args}
         env:
         - name: CUDA_VISIBLE_DEVICES
           value: "${cuda_devices}"
@@ -256,39 +231,15 @@ EOF
           value: "INFO"
         - name: NCCL_SOCKET_IFNAME
           value: "^lo,docker"
-        - name: NCCL_P2P_LEVEL
-          value: "NVL"
-        - name: TRANSFORMERS_CACHE
-          value: "/data/hf-cache"
-        - name: HF_HUB_ENABLE_HF_TRANSFER
-          value: "false"
 EOF
 
     # HuggingFace Token, falls vorhanden
     if [[ -n "$hf_token" ]]; then
         cat >> "$output_file" << EOF
-        - name: HF_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: huggingface-token
-              key: token
-              optional: true
         - name: HUGGING_FACE_HUB_TOKEN
           valueFrom:
             secretKeyRef:
               name: huggingface-token
-              key: token
-              optional: true
-EOF
-    fi
-
-    # API Key, falls vorhanden
-    if [[ -n "$api_key" ]]; then
-        cat >> "$output_file" << EOF
-        - name: TGI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: tgi-api-key
               key: token
               optional: true
 EOF
@@ -309,7 +260,7 @@ EOF
             cpu: "2"
         volumeMounts:
         - name: model-cache
-          mountPath: /data
+          mountPath: /root/.cache/huggingface
         - name: dshm
           mountPath: /dev/shm
       volumes:
@@ -327,7 +278,7 @@ metadata:
   name: ${service_name}
   namespace: ${namespace}
   labels:
-    app: llm-server
+    service: vllm-server
 spec:
   ports:
   - name: http
@@ -335,7 +286,7 @@ spec:
     protocol: TCP
     targetPort: 8000
   selector:
-    app: llm-server
+    service: vllm-server
   type: ClusterIP
 EOF
 }
@@ -349,9 +300,9 @@ function apply_deployment() {
     info "Wende Deployment an..."
     kubectl apply -f "$manifest"
     
-    info "Warte auf erfolgreichen Start des TGI Deployments..."
+    info "Warte auf erfolgreichen Start des vLLM Deployments..."
     if ! kubectl -n "$namespace" rollout status deployment/"$deployment_name" --timeout=300s; then
-        error "Deployment fehlgeschlagen. Überprüfen Sie die Logs mit: kubectl -n $namespace logs -l app=llm-server"
+        error "Deployment fehlgeschlagen. Überprüfen Sie die Logs mit: kubectl -n $namespace logs -l service=vllm-server"
     fi
 }
 
@@ -361,17 +312,15 @@ function display_summary() {
     local namespace="$2"
     local service_name="$3"
     local deployment_name="$4"
-    local api_key="$5"
     
     echo
-    success "✅ TGI Deployment erfolgreich gestartet"
+    success "✅ vLLM Deployment erfolgreich gestartet"
     echo
     echo "🚀 Verwendetes Modell: $model"
     echo "🌐 Service erreichbar über: $service_name:8000 (intern)"
-    echo "🛡️ API-Schlüssel: $([ -n "$api_key" ] && echo "Konfiguriert" || echo "Nicht konfiguriert (ungeschützt)")"
     echo
     echo "📋 Hinweise:"
-    echo "- TGI bietet eine OpenAI-kompatible API"
+    echo "- vLLM bietet eine OpenAI-kompatible API"
     echo "- V100-GPU-optimierte Konfiguration"
     echo "- Modelle werden im temporären Speicher abgelegt und bei Pod-Neustart neu geladen"
     echo "- Der Modell-Download kann einige Zeit in Anspruch nehmen"
@@ -389,12 +338,12 @@ function display_summary() {
 
 # Banner anzeigen
 cat << "EOF"
- _____ ____ ___    ______           __                                  __ 
-|_   _/ ___/__ \  /_  __/__  ____  / /___  __  ___   _____  ____  _____/ /_
-  | || |    / _/   / / / _ \/ __ \/ / __ \/ / / / | / / _ \/ __ \/ ___/ __/
-  | || |___ /_/   / / /  __/ /_/ / / /_/ / /_/ /| |/ /  __/ / / / /  / /_  
-  |_| \____/___/  /_/  \___/ .___/_/\____/\__, / |___/\___/_/ /_/_/   \__/  
-                         /_/            /____/                       V100
+ ___      ___  _      _      __  __    ______           __                                  __ 
+|   \    /  _|| |    | |    |  \/  |  /_  __/__  ____  / /___  __  ___   _____  ____  _____/ /_
+| |\ \  /  /  | |    | |    | |\/| |   / / / _ \/ __ \/ / __ \/ / / / | / / _ \/ __ \/ ___/ __/
+| | \ \/  /   | |___ | |___ | |  | |  / / /  __/ /_/ / / /_/ / /_/ /| |/ /  __/ / / / /  / /_  
+|_|  \___/    |_____||_____||_|  |_|  /_/  \___/ .___/_/\____/\__, / |___/\___/_/ /_/_/   \__/  
+                                              /_/            /____/                       V100
 EOF
 
 # Verzeichnisse und Konfiguration einrichten
@@ -412,11 +361,13 @@ check_model_access "$MODEL_NAME" "$HUGGINGFACE_TOKEN"
 CUDA_DEVICES=$(prepare_cuda_devices "$GPU_COUNT")
 
 # Bestehende Ressourcen entfernen
-cleanup_resources "$NAMESPACE" "$TGI_DEPLOYMENT_NAME" "$TGI_SERVICE_NAME"
+cleanup_resources "$NAMESPACE" "$VLLM_DEPLOYMENT_NAME" "$VLLM_SERVICE_NAME"
 
 # Secrets erstellen
 create_huggingface_secret "$NAMESPACE" "$HUGGINGFACE_TOKEN"
-create_api_key_secret "$NAMESPACE" "$TGI_API_KEY"
+
+# vLLM Argumente generieren
+VLLM_ARGS=$(generate_vllm_args "$MODEL_NAME" "$GPU_COUNT" "$QUANTIZATION")
 
 # Deployment-Konfiguration
 info "Deployment-Informationen:"
@@ -424,32 +375,33 @@ info "------------------------"
 info "Namespace: $NAMESPACE"
 info "GPU-Typ: $GPU_TYPE mit $GPU_COUNT GPU(s)"
 info "Modell: $MODEL_NAME"
-info "Quantisierung: ${QUANTIZATION:-'Keine (float16)'}"
-info "CUDA Memory Fraction: $CUDA_MEMORY_FRACTION"
-info "Speicherlimits: Input $MAX_INPUT_LENGTH, Total $MAX_TOTAL_TOKENS Tokens"
+info "Quantisierung: ${QUANTIZATION:-'Keine'}"
+info "Tensor Parallel Size: $GPU_COUNT"
+info "Max Model Length: $MAX_TOTAL_TOKENS"
+info "Block Size: $BLOCK_SIZE"
+info "Swap Space: $SWAP_SPACE GB"
+info "Max Batch Size: $MAX_BATCH_SIZE"
 info "------------------------"
 
 # Manifest generieren
 TMP_FILE=$(mktemp)
 trap 'rm -f "$TMP_FILE"' EXIT
 
-generate_tgi_manifest \
+generate_vllm_manifest \
     "$NAMESPACE" \
-    "$TGI_DEPLOYMENT_NAME" \
-    "$TGI_SERVICE_NAME" \
-    "$MODEL_NAME" \
+    "$VLLM_DEPLOYMENT_NAME" \
+    "$VLLM_SERVICE_NAME" \
     "$CUDA_DEVICES" \
-    "$QUANTIZATION" \
     "$GPU_COUNT" \
     "$GPU_TYPE" \
+    "$VLLM_ARGS" \
     "$HUGGINGFACE_TOKEN" \
-    "$TGI_API_KEY" \
     "$TMP_FILE"
 
 # Deployment anwenden
-apply_deployment "$TMP_FILE" "$NAMESPACE" "$TGI_DEPLOYMENT_NAME"
+apply_deployment "$TMP_FILE" "$NAMESPACE" "$VLLM_DEPLOYMENT_NAME"
 
 # Erfolgsinformationen anzeigen
-display_summary "$MODEL_NAME" "$NAMESPACE" "$TGI_SERVICE_NAME" "$TGI_DEPLOYMENT_NAME" "$TGI_API_KEY"
+display_summary "$MODEL_NAME" "$NAMESPACE" "$VLLM_SERVICE_NAME" "$VLLM_DEPLOYMENT_NAME"
 
 exit 0

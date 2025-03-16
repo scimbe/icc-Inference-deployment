@@ -1,164 +1,269 @@
-# V100 GPU-Optimierung für TGI
+# V100 GPU-Optimierung für TGI und vLLM
 
-Diese Anleitung beschreibt, wie Sie Text Generation Inference (TGI) mit Tesla V100 GPUs auf der ICC der HAW Hamburg optimiert bereitstellen können.
+Diese technische Dokumentation beschreibt die spezifischen Optimierungen und Best Practices für den Einsatz von TGI (Text Generation Inference) und vLLM auf NVIDIA Tesla V100 GPUs in der ICC-Umgebung.
 
-## Problembeschreibung
+## Inhaltsverzeichnis
 
-TGI-Deployments auf Tesla V100 GPUs mit 16GB Speicher können Out-of-Memory-Fehler (OOM) verursachen, besonders bei Multi-GPU-Setups. Der typische Fehler ist:
+- [Hardwarespezifikation: Tesla V100](#hardwarespezifikation-tesla-v100)
+- [Häufige Herausforderungen](#häufige-herausforderungen)
+- [TGI-Optimierungsstrategien](#tgi-optimierungsstrategien)
+- [vLLM-Optimierungsstrategien](#vllm-optimierungsstrategien)
+- [Multi-GPU-Konfigurationen](#multi-gpu-konfigurationen)
+- [Quantisierungstechniken](#quantisierungstechniken)
+- [Überwachung und Fehlerdiagnose](#überwachung-und-fehlerdiagnose)
+- [Modellspezifische Empfehlungen](#modellspezifische-empfehlungen)
+
+## Hardwarespezifikation: Tesla V100
+
+Die NVIDIA Tesla V100 GPU, die in der ICC verfügbar ist, hat folgende Spezifikationen:
+
+| Eigenschaft | Wert |
+|-------------|------|
+| GPU-Speicher | 16 GB HBM2 |
+| CUDA-Kerne | 5,120 |
+| Tensor-Kerne | 640 |
+| Speicherbandbreite | 900 GB/s |
+| Compute-Capability | 7.0 |
+| Architektur | Volta |
+
+Diese Hardware hat einige spezifische Eigenschaften, die bei LLM-Inferenz berücksichtigt werden müssen:
+
+- **Limitierter Speicher**: Mit 16GB RAM pro GPU gibt es Einschränkungen für große Modelle
+- **Ältere Architektur**: Im Vergleich zu A100/H100 fehlen einige Optimierungen
+- **HBM2-Speicher**: Hohe Bandbreite, aber empfindlich bei Speicherfragmentierung
+
+## Häufige Herausforderungen
+
+Bei der Ausführung von LLMs auf V100 GPUs treten häufig folgende Probleme auf:
+
+### 1. Out-of-Memory (OOM) Fehler
 
 ```
+CUDA error: out of memory
 Shard process was signaled to shutdown with signal 9
 ```
 
-Dies liegt an den Speicherbeschränkungen der V100 GPUs und den speziellen Anforderungen der TGI-Version 1.2.0.
+Diese Fehler treten auf, wenn das Modell den verfügbaren GPU-Speicher überschreitet. Besonders häufig bei:
+- Modellen >7B ohne Quantisierung auf einer GPU
+- Langen Eingabekontexten
+- Ungünstigen Konfigurationsparametern
 
-## Optimierte V100-Skripte
+### 2. NCCL-Kommunikationsprobleme bei Multi-GPU
 
-Für die stabile Ausführung auf V100 GPUs wurden folgende spezialisierte Skripte erstellt:
-
-1. **scripts/deploy-tgi-v100.sh**:
-   - Korrigierter Parameter `--cuda-memory-fraction` statt `--gpu-memory-utilization`
-   - Optimiertes Speicher-Management mit reduzierten Token-Limits
-   - Korrekte Formatierung der Kommandozeilen-Parameter
-   - V100-spezifische NCCL-Optimierungen
-
-2. **configs/config.v100.sh**:
-   - Speicher-optimierte Werte für V100 GPUs
-   - Aktivierte Quantisierung für bessere Memory-Effizienz
-   - Angepasste Ressourcenlimits
-
-## Verwendung
-
-1. **Kopieren der V100-optimierten Konfiguration**:
-   ```bash
-   cp configs/config.v100.sh configs/config.sh
-   ```
-
-2. **Verwenden des V100-spezifischen Deployment-Skripts**:
-   ```bash
-   ./scripts/deploy-tgi-v100.sh
-   ```
-
-3. **Kompatibilitätstest durchführen**:
-   ```bash
-   ./scripts/test-v100-compatibility.sh
-   ```
-
-## Empfohlene Parameter für V100 GPUs
-
-### Für eine einzelne V100 GPU (16GB):
-
-```bash
-export MODEL_NAME="microsoft/phi-2"  # Kleines 2.7B-Modell
-export QUANTIZATION="awq"            # Speichereffiziente Quantisierung
-export CUDA_MEMORY_FRACTION=0.85     # 85% des GPU-Speichers verwenden
-export MAX_INPUT_LENGTH=2048         # Reduzierte Kontextlänge
-export MAX_TOTAL_TOKENS=4096         # Reduzierte Gesamttokens
-export DSHM_SIZE="4Gi"               # Shared Memory für eine GPU
+```
+NCCL error: unhandled system error (Connection timed out)
 ```
 
-### Für Multi-GPU V100-Setup (2x 16GB):
+Diese können auftreten, wenn die GPU-Kommunikation bei Multi-GPU-Setups nicht richtig konfiguriert ist.
 
-```bash
-export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"  # 7B-Modell
-export GPU_COUNT=2                                       # 2 GPUs
-export QUANTIZATION="awq"                                # Speichereffiziente Quantisierung
-export CUDA_MEMORY_FRACTION=0.85                         # 85% des GPU-Speichers verwenden
-export MAX_INPUT_LENGTH=4096                             # Höhere Kontextlänge mit 2 GPUs
-export MAX_TOTAL_TOKENS=8192                             # Höhere Gesamttokens mit 2 GPUs
-export DSHM_SIZE="8Gi"                                   # Erhöhter Shared Memory für Multi-GPU
+### 3. Flash Attention Inkompatibilität
+
+```
+CUDA error: no kernel image is available for execution on the device
 ```
 
-## Modellgrößen-Empfehlungen für V100 GPUs
+V100 GPUs unterstützen einige neuere Flash Attention-Implementierungen nicht vollständig.
 
-| Modellgröße | GPU-Setup       | Quantisierung | Empfohlenes Modell                  |
-|-------------|-----------------|---------------|-------------------------------------|
-| 1-3B        | 1x V100 (16GB)  | Keine         | microsoft/phi-2, google/gemma-2b    |
-| 7B          | 1x V100 (16GB)  | AWQ           | Mistral-7B, Llama-2-7b              |
-| 7B          | 2x V100 (32GB)  | Keine         | Mistral-7B, Llama-2-7b              |
-| 13B         | 2x V100 (32GB)  | AWQ           | Llama-2-13b                         |
-| 13B         | 4x V100 (64GB)  | Keine         | Llama-2-13b                         |
+## TGI-Optimierungsstrategien
 
-## Fehlerbehebung
+Text Generation Inference (TGI) kann für V100 GPUs spezifisch optimiert werden:
 
-Falls nach den Optimierungen weiterhin OOM-Fehler auftreten:
+### Parameter-Optimierung
 
-1. **Reduzieren Sie die Modellgröße** auf unter 7B Parameter
-2. **Aktivieren Sie AWQ-Quantisierung** mit `export QUANTIZATION="awq"`
-3. **Reduzieren Sie die Token-Limits** weiter: `MAX_INPUT_LENGTH=1024` und `MAX_TOTAL_TOKENS=2048` 
-4. **Erhöhen Sie die Anzahl der GPUs** auf 2 oder mehr
-5. **Reduzieren Sie die Speichernutzung** mit `CUDA_MEMORY_FRACTION=0.8`
+| Parameter | Optimaler Wert | Grund |
+|-----------|---------------|-------|
+| `--cuda-memory-fraction` | 0.85 | Verhindert OOM, lässt Puffer für Systemoperationen |
+| `--max-input-length` | 2048 | Reduzierte Kontextgröße für V100 |
+| `--max-total-tokens` | 4096 | Limitierte kombinierte Token-Anzahl |
+| `--max-batch-prefill-tokens` | 4096 | Verhindert Speicherüberlastung beim Batch-Prefill |
+| `--disable-custom-kernels` | true | Sorgt für bessere Kompatibilität mit V100 |
 
-## Hinweise
-
-- Die CPU-Speicheranforderungen sind ebenfalls wichtig; stellen Sie sicher, dass `MEMORY_LIMIT` angemessen eingestellt ist
-- Die `--sharded=true`-Option funktioniert nur bei mehreren GPUs
-- Für Produktionsumgebungen empfehlen wir mindestens 2 V100 GPUs für Modelle ab 7B Parameter
-- Der Parameter `NCCL_DEBUG=INFO` hilft bei der Diagnose von Multi-GPU-Kommunikationsproblemen
-
-## GPU-Debugging
-
-Für detaillierte Debugging-Informationen und GPU-Überwachung:
+### CUDA-Umgebungsvariablen
 
 ```bash
-# Überwachen der GPU-Auslastung in Echtzeit
+# Kritische Einstellungen
+CUDA_VISIBLE_DEVICES="0,1"    # GPUs explizit definieren
+NCCL_DEBUG="INFO"             # Debug-Informationen für Multi-GPU
+NCCL_SOCKET_IFNAME="^lo,docker" # Socket-Interface für NCCL
+NCCL_P2P_LEVEL="NVL"          # Optimale Peer-to-Peer-Kommunikation
+```
+
+### Shared Memory Optimierung
+
+Die Default-Shared-Memory-Größe von Docker ist oft zu gering für Multi-GPU-Inferenz:
+
+| GPU-Anzahl | Empfohlene DSHM-Größe |
+|------------|----------------------|
+| 1 GPU | 4Gi - 8Gi |
+| 2 GPUs | 8Gi - 12Gi |
+| 4 GPUs | 16Gi |
+
+Diese wird in der K8s-Konfiguration über das dshm-Volume festgelegt.
+
+## vLLM-Optimierungsstrategien
+
+vLLM bietet teilweise bessere Performance als TGI, erfordert aber spezifische Konfigurationen für V100:
+
+### Key-Parameter
+
+| Parameter | Optimaler Wert | Erläuterung |
+|-----------|---------------|------------|
+| `--block-size` | 16 | Optimale Blockgröße für die Speicherverwaltung |
+| `--swap-space` | 4 | Erlaubt Paging zwischen CPU und GPU |
+| `--max-model-len` | ≤4096 | Kontext-Limit auf V100 |
+| `--tensor-parallel-size` | GPU-Anzahl | Für Multi-GPU-Sharding |
+
+### PagedAttention
+
+vLLM verwendet PagedAttention, eine speichereffiziente Technik. Auf V100 sollten Sie:
+
+- Kleinere Blockgrößen verwenden (8 oder 16)
+- Swap-Space aktivieren für längere Sequenzen
+- Bei Multi-GPU immer Tensor-Parallelismus aktivieren
+
+## Multi-GPU-Konfigurationen
+
+Für größere Modelle empfehlen wir die Nutzung mehrerer GPUs im Sharded-Modus:
+
+### TGI Multi-GPU
+
+```
+--sharded=true       # Aktiviert Modell-Sharding
+```
+
+### vLLM Multi-GPU
+
+```
+--tensor-parallel-size=N  # N = Anzahl GPUs
+```
+
+### V100-spezifische Multi-GPU-Optimierungen
+
+- **NCCL-Umgebungsvariablen** sind entscheidend für stabile Multi-GPU-Performance
+- **Alle GPUs müssen auf demselben Knoten** sein, Node-übergreifendes Sharding wird nicht unterstützt
+- **Shared Memory (dshm)** muss ausreichend groß sein für Inter-GPU-Kommunikation
+
+## Quantisierungstechniken
+
+Quantisierung reduziert den Speicherverbrauch erheblich und ist oft erforderlich für größere Modelle auf V100:
+
+### AWQ-Quantisierung
+
+```
+--quantize=awq
+```
+
+Diese reduziert den Speicherbedarf um ca. 75% mit minimalem Qualitätsverlust. Empfohlen für:
+- 7B-Modelle auf einer V100 (Mistral, Llama usw.)
+- 13B-Modelle auf zwei V100s
+
+### GPTQ-Quantisierung
+
+```
+--quantize=gptq
+```
+
+Alternative Quantisierungsmethode, bei manchen Modellen verfügbar.
+
+### Vergleich: Speicheranforderungen
+
+| Modellgröße | Standard (BF16) | AWQ | GPUs für Standard | GPUs für AWQ |
+|-------------|----------------|-----|------------------|-------------|
+| 7B | ~14 GB | ~4 GB | 1 | 1 |
+| 13B | ~26 GB | ~7 GB | 2 | 1 |
+| 34B | ~68 GB | ~17 GB | 4+ | 2 |
+| 70B | ~140 GB | ~35 GB | 9+ | 3 |
+
+## Überwachung und Fehlerdiagnose
+
+### Wichtige Monitoring-Befehle
+
+```bash
+# GPU-Auslastung überwachen
 ./scripts/monitor-gpu.sh
 
-# Überprüfen der TGI-Logs auf Fehler
+# Logs auf Fehler analysieren
 ./scripts/check-logs.sh tgi -a
 
-# Testen der V100-Kompatibilität
+# GPU-Funktionalität testen
+./scripts/test-gpu.sh
+
+# V100-Kompatibilität prüfen
 ./scripts/test-v100-compatibility.sh
 ```
 
-## Bekannte Probleme und deren Lösungen
+### Typische Fehlermuster und Lösungen
 
-### Problem 1: Fehlerhafte Parameterformatierung
+| Fehlermeldung | Wahrscheinliche Ursache | Lösungsansatz |
+|---------------|------------------------|---------------|
+| `CUDA out of memory` | Speicherübernutzung | Quantisierung, kleineres Modell, mehr GPUs |
+| `Shard process shutdown` | OOM-Killer | Reduzierte Batchgröße, kleinere Kontextlänge |
+| `NCCL error` | Multi-GPU-Kommunikation | NCCL-Variablen prüfen, shared memory erhöhen |
+| `no kernel image` | Inkompatible CUDA-Kernel | Custom Kernels deaktivieren |
 
-**Symptom:** In den Logs erscheinen Parameter ohne Leerzeichen dazwischen, z.B. `--model-id=microsoft/phi-2--port=8000`
+## Modellspezifische Empfehlungen
 
-**Lösung:** Verwenden Sie das aktualisierte `deploy-tgi-v100.sh` Skript, das korrekte Parametertrennung gewährleistet.
+### Optimale Konfigurationen für V100
 
-### Problem 2: Out-of-Memory beim Multi-GPU-Setup
+| Modell | Empfohlene Konfiguration | max_tokens | Quantisierung |
+|--------|--------------------------|------------|---------------|
+| microsoft/phi-2 | 1 GPU | 4096 | Keine notwendig |
+| mistralai/Mistral-7B | 1 GPU | 4096 | AWQ |
+| meta-llama/Llama-2-7b | 1 GPU | 4096 | AWQ |
+| meta-llama/Llama-2-13b | 2 GPUs | 4096 | AWQ (optional) |
+| mistralai/Mixtral-8x7B | 4 GPUs | 2048 | AWQ |
+| meta-llama/Llama-2-70b | Nicht empfohlen für V100 | - | - |
 
-**Symptom:** `Shard process was signaled to shutdown with signal 9`
+### Engine-Vergleich: TGI vs vLLM
 
-**Lösungen:**
-- Erhöhen Sie `DSHM_SIZE` auf "16Gi" für bessere Inter-GPU-Kommunikation
-- Setzen Sie `NCCL_P2P_LEVEL=NVL` und `NCCL_SOCKET_IFNAME="^lo,docker"` für optimierte Kommunikation
-- Reduzieren Sie die Modellgröße oder verwenden Sie Quantisierung
+| Modelltyp | Beste Engine | Grund |
+|-----------|-------------|-------|
+| <7B Modelle | TGI | Einfachere Konfiguration |
+| 7-13B Modelle | vLLM oder TGI | vLLM: schneller, TGI: besser optimiert |
+| MoE-Modelle | TGI | Bessere Unterstützung für Mixture-of-Experts |
+| Quantisierte Modelle | TGI | Bessere AWQ-Integration |
 
-### Problem 3: Langsamer Start oder Timeout
+### Performance-Vergleich
 
-**Symptom:** Das Deployment startet nicht oder braucht extrem lange
+| Modell | Engine | Konfiguration | Tokens/Sekunde | Latenz erste Token |
+|--------|--------|---------------|----------------|-------------------|
+| Mistral-7B | TGI | 1 GPU, AWQ | ~30-40 | ~300ms |
+| Mistral-7B | vLLM | 1 GPU, Standard | ~40-50 | ~250ms |
+| Llama-2-13b | TGI | 2 GPUs, Sharded | ~25-35 | ~500ms |
+| Llama-2-13b | vLLM | 2 GPUs, TP=2 | ~30-40 | ~450ms |
 
-**Lösungen:**
-- Prüfen Sie die Netzwerkverbindung zum HuggingFace Hub
-- Nutzen Sie ein lokal gespeichertes Modell, falls möglich
-- Beginnen Sie mit einem kleinen Modell wie TinyLlama, um die Grundfunktionalität zu testen
+## Erweiterte Optimierungen
 
-## Beispiel für ein erfolgreiches Multi-GPU-Setup
+### Kernel-Optimierungen
 
-Hier ein Beispiel für ein erfolgreiches Deployment mit Mistral-7B auf 2 V100 GPUs:
+Für TGI können Sie Flash Attention und andere Optimierungen deaktivieren:
 
-```yaml
-NAMESPACE="wXYZ123-default"
-MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"
-GPU_COUNT=2
-QUANTIZATION="awq"
-MAX_INPUT_LENGTH=2048
-MAX_TOTAL_TOKENS=4096
-CUDA_MEMORY_FRACTION=0.85
-DSHM_SIZE="8Gi"
-MEMORY_LIMIT="24Gi"
+```
+--disable-flash-attention=true
+--disable-custom-kernels
 ```
 
-Führen Sie das Deployment mit `./scripts/deploy-tgi-v100.sh` durch.
+### vLLM-spezifische Einstellungen
 
-## Nächste Schritte
+```
+--gpu-memory-utilization=0.85  # Verhindert OOM
+--enforce-eager               # Vermeidet spekulative CUDA-Operationen
+```
 
-Nach erfolgreichem Deployment können Sie:
+### Containerization-Tipps
 
-1. Die WebUI für einfache Benutzerinteraktion einrichten: `./scripts/deploy-webui.sh`
-2. GPU-Ressourcen bei Bedarf dynamisch skalieren: `./scripts/scale-gpu.sh --count <1-4>`
-3. Die API direkt ansprechen für programmatischen Zugriff über Port 3333
+```
+# Wichtige Docker/Kubernetes-Flags
+--ipc=host              # Shared memory erhöhen
+--ulimit memlock=-1     # Speicher-Locks erlauben
+```
+
+### Temperatur-Management
+
+V100 GPUs können bei anhaltender Belastung heiß werden. Achten Sie auf Temperaturen über 80°C und überlegen Sie, `CUDA_MEMORY_FRACTION` zu reduzieren, wenn die GPUs überhitzen.
+
+## Schlussfolgerung
+
+Die V100 GPU ist nach wie vor ein leistungsfähiger Kandidat für LLM-Inferenz, benötigt jedoch sorgfältige Optimierung und Konfiguration, besonders für größere Modelle. Mit den richtigen Einstellungen und Quantisierungstechniken können Sie bis zu 13B-Modelle effizient ausführen, während größere Modelle wahrscheinlich neuere GPU-Generationen erfordern.
+
+Die in diesem Dokument beschriebenen Optimierungen sind in den Skripten dieses Repositories bereits implementiert und können durch einfache Konfigurationsänderungen angepasst werden.

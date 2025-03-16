@@ -1,109 +1,145 @@
-# ICC TGI Deployment
+# IC-LLM: V100-optimiertes LLM-Deployment System
 
-Automatisierte Bereitstellung von Text Generation Inference (TGI) mit GPU-Unterstützung auf der HAW Hamburg Informatik Compute Cloud (ICC). Das Projekt nutzt OpenAI-kompatible TGI-Server und Open WebUI als Benutzeroberfläche.
+Eine umfassende Lösung für das Deployment von Large Language Models (LLMs) auf NVIDIA Tesla V100 GPUs in der HAW Hamburg Informatik Compute Cloud (ICC).
 
-## Übersicht
+<div align="center">
+  <img src="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/TGI.png" alt="LLM Deployment" width="600px">
+</div>
 
-Dieses Repository enthält Scripts und Konfigurationsdateien, um TGI mit Multi-GPU-Unterstützung (bis zu 4 GPUs) auf der ICC der HAW Hamburg zu deployen. Dies ermöglicht die Bereitstellung von LLM-Inferenzdiensten mit hoher Performance und die Verwendung von größeren Modellen, die eine einzelne GPU überfordern würden.
+## 🌟 Hauptfeatures
 
-## Funktionen
+- **V100-optimierte Konfiguration** für NVIDIA Tesla V100 GPUs
+- **Zwei Inference-Engines**: Text Generation Inference (TGI) und vLLM
+- **Multi-GPU-Unterstützung** mit bis zu 4x V100 GPUs im Sharded-Modus
+- **OpenAI-kompatible REST API** für einfache Integration
+- **Benutzerfreundliche WebUI** für Chat-Interaktionen
+- **Unterstützung für zahlreiche Modelle**: Mistral, Llama, Gemma, Phi, etc.
+- **Speicheroptimierungen**: AWQ Quantisierung, optimierte Kontextlängen
 
-- **Multi-GPU-Unterstützung**: Bis zu 4 Tesla V100 GPUs können für ein Modell verwendet werden (Sharded Mode)
-- **Beliebige Modelle**: Unterstützt das Laden verschiedener HuggingFace-Modelle wie Llama, Mistral, Gemma, usw.
-- **OpenAI API-kompatibel**: TGI implementiert die OpenAI API, was die Integration mit verschiedenen Tools vereinfacht
-- **Open WebUI Frontend**: Benutzerfreundliche Weboberfläche für die Interaktion mit dem LLM
-- **Dynamisches Modell-Loading**: Einfaches Wechseln zwischen verschiedenen Modellen
-- **Quantisierung**: Unterstützung für AWQ und andere Quantisierungsmethoden, um den Speicherbedarf zu reduzieren
+## 📋 Voraussetzungen
 
-## Voraussetzungen
+- HAW Hamburg infw-Account mit ICC-Zugang
+- kubectl-Client auf Ihrem lokalen System
+- VPN-Verbindung zum HAW-Netz (bei Remote-Zugriff)
 
-- HAW Hamburg infw-Account mit Zugang zur ICC
-- kubectl installiert
-- Eine aktive VPN-Verbindung zum HAW-Netz (wenn außerhalb des HAW-Netzes)
-- (Optional) Make installiert für vereinfachte Befehle
-
-## Schnellstart
+## 🚀 Schnellstart
 
 ```bash
 # Repository klonen
-git clone https://github.com/scimbe/icc-tgi-deployment.git
-cd icc-tgi-deployment
+git clone https://github.com/scimbe/icc-llm-deployment.git
+cd icc-llm-deployment
 
-# ICC-Zugang einrichten
+# Berechtigung setzen
+chmod +x scripts/*.sh
+chmod +x *.sh
+
+# ICC-Login durchführen (einmalig)
 ./scripts/icc-login.sh
 
-# Konfiguration anpassen
-cp configs/config.example.sh configs/config.sh
-vim configs/config.sh  # Passen Sie Ihre Namespace-Informationen an
-
-# Ausführungsberechtigungen für Skripte setzen
-./scripts/set-permissions.sh
-
-# Deployment ausführen
-./deploy.sh
+# Deployment starten (interaktiver Modus)
+./deploy-v100.sh
 ```
 
-## Detaillierte Anleitung
+Nach dem Deployment können Sie die WebUI unter http://localhost:3000 und die API unter http://localhost:8000 erreichen.
 
-Eine ausführliche Schritt-für-Schritt-Anleitung finden Sie in der [DOCUMENTATION.md](DOCUMENTATION.md) Datei.
-
-## GPU-Ressourcen skalieren
-
-Um die Performance zu optimieren oder größere Modelle zu unterstützen, können Sie die Anzahl der GPUs dynamisch anpassen:
+## 🖥️ Manuelle Installation
 
 ```bash
-# Skalieren auf mehr GPUs für verbesserte Performance oder größere Modelle
-./scripts/scale-gpu.sh --count 2
+# 1. V100-optimierte Konfiguration kopieren
+cp configs/config.v100.sh configs/config.sh
 
-# Reduzieren auf 1 GPU, wenn nicht alle Ressourcen benötigt werden
-./scripts/scale-gpu.sh --count 1
+# 2. Konfiguration anpassen (wichtig!)
+#    - NAMESPACE auf Ihre w-Kennung + "-default" setzen
+#    - Modell und GPU-Anzahl wählen
+nano configs/config.sh
+
+# 3. TGI mit V100-Optimierungen deployen
+./scripts/deploy-tgi-v100.sh
+
+# 4. ODER: vLLM deployen
+./scripts/deploy-vllm-v100.sh
+
+# 5. Web-Oberfläche installieren
+./scripts/deploy-webui.sh
+
+# 6. Zugriff einrichten
+./scripts/port-forward.sh
 ```
 
-## Modellauswahl
+## 📊 Unterstützte Modelle und Anforderungen
 
-TGI unterstützt verschiedene Modelle von HuggingFace. Sie können das Modell in der Konfigurationsdatei oder bei der Ausführung angeben:
+| Modellgröße | GPU-Setup | Empfohlene Konfiguration | Beispielmodelle |
+|-------------|-----------|--------------------------|-----------------|
+| 2-3B | 1× V100 | Standard (float16) | microsoft/phi-2, google/gemma-2b |
+| 7B | 1× V100 | AWQ Quantisierung | Mistral-7B-Instruct, Llama-2-7b-chat |
+| 7B | 2× V100 | Sharded Mode | Mistral-7B-Instruct, Llama-2-7b-chat |
+| 13B | 2× V100 | AWQ + Sharded | Llama-2-13b-chat |
+| 13B | 4× V100 | Sharded Mode | Llama-2-13b-chat |
+
+## 🔧 Wichtige Befehle
 
 ```bash
-# Modell in der Konfiguration ändern
-./scripts/change-model.sh --model "meta-llama/Llama-2-7b-chat-hf"
+# Modellwechsel
+./scripts/change-model.sh --model "mistralai/Mistral-7B-Instruct-v0.2" --quantization awq
 
-# Andere Beispiele:
-# ./scripts/change-model.sh --model "google/gemma-7b-it"
-# ./scripts/change-model.sh --model "mistralai/Mistral-7B-Instruct-v0.2"
-# ./scripts/change-model.sh --model "microsoft/phi-2"
+# Skalierung auf mehrere GPUs
+./scripts/scale-gpu.sh --count 2 --mem 16Gi
+
+# Überwachung
+./scripts/monitor-gpu.sh            # GPU-Nutzung überwachen
+./scripts/check-logs.sh tgi -a      # Logs analysieren
+./scripts/test-gpu.sh               # GPU-Funktionalität testen
+
+# Fehlerbehebung
+./scripts/test-v100-compatibility.sh  # V100-Kompatibilität testen
+./scripts/deploy-tgi-minimal.sh       # Minimales Testdeployment
 ```
 
-## GPU-Überwachung
+Eine vollständige Befehlsreferenz finden Sie in [COMMANDS.md](COMMANDS.md).
 
-Überwachen Sie die GPU-Auslastung in Echtzeit:
+## 📁 Projektstruktur
 
-```bash
-./scripts/monitor-gpu.sh
+```
+icc-llm-deployment/
+├── configs/                # Konfigurationen
+│   ├── config.v100.sh      # V100-optimierte Konfiguration
+│   └── config.example.sh   # Beispielkonfiguration
+├── scripts/                # Deployment- und Verwaltungsskripte
+│   ├── deploy-tgi-v100.sh  # TGI V100-Deployment
+│   ├── deploy-vllm-v100.sh # vLLM V100-Deployment
+│   ├── deploy-webui.sh     # WebUI-Deployment
+│   ├── port-forward.sh     # Port-Forwarding-Skript
+│   └── ...                 # Weitere Hilfsskripte
+├── deploy-v100.sh          # Hauptdeployment-Skript (interaktiv)
+├── COMMANDS.md             # Befehlsreferenz
+├── V100-OPTIMIZATION.md    # V100-spezifische Optimierungen
+└── README.md               # Diese Dokumentation
 ```
 
-## Architektur
+## 🛠️ Fehlerbehebung
 
-Die Deployment-Architektur besteht aus zwei Hauptkomponenten:
+Bei Problemen helfen folgende Schritte:
 
-1. **TGI-Server**:
-   - Läuft als Kubernetes-Pod mit Multi-GPU-Unterstützung
-   - Bietet eine OpenAI-kompatible API über Port 3333
-   - Lädt und verwaltet das LLM-Modell
+1. **Logs prüfen**: `./scripts/check-logs.sh tgi -a`
+2. **GPU-Test**: `./scripts/test-gpu.sh`
+3. **Minimaltest**: `./scripts/deploy-tgi-minimal.sh`
+4. **Pod-Beschreibung**: `kubectl -n $NAMESPACE describe pod -l app=llm-server`
 
-2. **Open WebUI**:
-   - Benutzerfreundliche Weboberfläche für die Interaktion mit dem LLM
-   - Verbindet sich mit dem TGI-Server über die OpenAI-kompatible API
-   - Läuft als separater Kubernetes-Pod
+Typische Probleme und detaillierte Lösungen finden Sie in [COMMANDS.md](COMMANDS.md#fehlerbehebung).
 
-## Troubleshooting
+## 📝 Dokumentation
 
-Bei Problemen mit der GPU-Funktionalität oder Modellanpassung können folgende Schritte helfen:
+- [COMMANDS.md](COMMANDS.md) - Vollständige Befehlsreferenz mit Beispielen
+- [V100-OPTIMIZATION.md](V100-OPTIMIZATION.md) - Detaillierte V100-Optimierungen
+- [DOCUMENTATION.md](DOCUMENTATION.md) - Ausführliche technische Dokumentation
 
-1. Testen Sie die GPU-Funktionalität: `./scripts/test-gpu.sh`
-2. Überprüfen Sie die Deployment-Konfiguration: `kubectl -n $NAMESPACE get deployment $TGI_DEPLOYMENT_NAME -o yaml`
-3. Prüfen Sie die Logs des TGI-Pods: `./scripts/check-logs.sh`
-4. Starten Sie einen minimalen Test-Server: `./scripts/deploy-tgi-minimal.sh`
-
-## Lizenz
+## 📄 Lizenz
 
 Dieses Projekt steht unter der [MIT-Lizenz](LICENSE).
+
+## 🙏 Danksagungen
+
+- [Hugging Face Text Generation Inference](https://github.com/huggingface/text-generation-inference)
+- [vLLM Project](https://github.com/vllm-project/vllm)
+- [Open WebUI](https://github.com/open-webui/open-webui)
+- HAW Hamburg Informatik Compute Cloud (ICC) Team
