@@ -23,7 +23,7 @@ export HUGGINGFACE_TOKEN=""         # Optional, für gated Modelle
 export ENGINE_TYPE="tgi"            # "tgi" oder "vllm"
 
 # Deployment-Namen
-export TGI_DEPLOYMENT_NAME="tgi-server"
+export TGI_DEPLOYMENT_NAME="inf-server"
 export TGI_SERVICE_NAME="tgi-service"
 export WEBUI_DEPLOYMENT_NAME="llm-webui" 
 export WEBUI_SERVICE_NAME="llm-webui"
