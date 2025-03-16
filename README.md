@@ -1,4 +1,4 @@
-# IC-LLM: V100-optimiertes LLM-Deployment System
+# ICC-LLM: V100-optimiertes LLM-Deployment System
 
 Eine umfassende Lösung für das Deployment von Large Language Models (LLMs) auf NVIDIA Tesla V100 GPUs in der HAW Hamburg Informatik Compute Cloud (ICC).
 
