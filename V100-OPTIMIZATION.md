@@ -236,10 +236,8 @@ Alternative Quantisierungsmethode mit guter Leistung, besonders bei vorquantisie
 | mistralai/Mistral-7B | 1 GPU | 4096 | AWQ | Nein |
 | meta-llama/Llama-2-7b | 1 GPU | 4096 | AWQ | Nein |
 | TheBloke/Llama-2-13b-chat-GPTQ | 1-2 GPUs | 4096 | GPTQ | Optional |
-| meta-llama/Llama-2-13b | 2 GPUs | 4096 | AWQ (optional) | Ja |
-| mistralai/Mixtral-8x7B | 4 GPUs | 2048 | AWQ | Ja |
-| TheBloke/Mixtral-8x7B-Instruct-v0.1-GPTQ | 2 GPUs | 2048 | GPTQ | Ja |
-| meta-llama/Llama-2-70b | Nicht empfohlen für V100 | - | - | - |
+
+
 
 ### Engine-Vergleich: TGI vs vLLM für V100
 
@@ -252,18 +250,11 @@ Alternative Quantisierungsmethode mit guter Leistung, besonders bei vorquantisie
 | Quantisierte AWQ-Modelle | TGI | Bessere AWQ-Integration |
 | Multi-GPU-Performance | vLLM leichter Vorteil | Tensor-Parallelismus kann effizienter sein als Sharding |
 
-### Performance-Vergleich
+### Performance-Vergleich 
 
 | Modell | Engine | Konfiguration | Tokens/Sekunde | Latenz erste Token |
 |--------|--------|---------------|----------------|-------------------|
-| Mistral-7B | TGI | 1 GPU, AWQ | ~30-40 | ~300ms |
-| Mistral-7B | vLLM | 1 GPU, Standard | ~40-50 | ~250ms |
-| Mistral-7B-GPTQ | vLLM | 1 GPU, GPTQ | ~35-45 | ~275ms |
-| Llama-2-13b | TGI | 2 GPUs, Sharded | ~25-35 | ~500ms |
-| Llama-2-13b | vLLM | 2 GPUs, TP=2 | ~30-40 | ~450ms |
-| Llama-2-13b-GPTQ | vLLM | 1 GPU, GPTQ | ~25-35 | ~400ms |
-| Mixtral-8x7B | TGI | 4 GPUs, Sharded | ~20-30 | ~600ms |
-| Mixtral-8x7B-GPTQ | vLLM | 2 GPUs, TP=2, GPTQ | ~25-35 | ~550ms |
+| TODO | VLLM | 1 GPU, AWQ | ... | ... |
 
 ## Erweiterte Optimierungen
 
