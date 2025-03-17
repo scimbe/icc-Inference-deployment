@@ -87,11 +87,9 @@ nano configs/config.sh
 
 | Modellgröße | GPU-Setup | Empfohlene Konfiguration | Beispielmodelle |
 |-------------|-----------|--------------------------|-----------------|
-| 2-3B | 1× V100 | Standard (float16) | microsoft/phi-2, google/gemma-2b |
+| 2-3B | 1× V100 | Standard (float16) | gpt2|
 | 7B | 1× V100 | AWQ/GPTQ Quantisierung | TheBloke/Mistral-7B-Instruct-v0.2-GPTQ |
 | 7B | 2× V100 | Sharded/Tensor-Parallel | Mistral-7B-Instruct, Llama-2-7b-chat |
-| 13B | 2× V100 | AWQ/GPTQ + Sharded/TP | TheBloke/Llama-2-13b-chat-GPTQ |
-| 13B | 4× V100 | Sharded/Tensor-Parallel | Llama-2-13b-chat |
 
 ## 🔧 Wichtige Befehle
 
