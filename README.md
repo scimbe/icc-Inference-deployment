@@ -193,7 +193,7 @@ Detaillierte Fehlerbehebungstipps finden Sie in [TROUBLESHOOTING.md](TROUBLESHOO
 
 ## 📝 Dokumentation
 
-- [COMMANDS.md](COMMANDS.md) - Vollständige Befehlsreferenz mit Beispielen
+
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Detaillierte Fehlerbehebungsanleitung
 - [V100-OPTIMIZATION.md](V100-OPTIMIZATION.md) - Detaillierte V100-Optimierungen
 - [DOCUMENTATION.md](DOCUMENTATION.md) - Ausführliche technische Dokumentation
