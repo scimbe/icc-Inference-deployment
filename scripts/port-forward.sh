@@ -31,7 +31,7 @@ ENGINE_LABEL=""
 
 case "$ENGINE_TYPE" in
     "tgi")
-        LLM_SERVICE_NAME="${TGI_SERVICE_NAME:-inf-service}"
+        LLM_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
         ENGINE_NAME="Text Generation Inference"
         ENGINE_LABEL="tgi"
         ;;
@@ -75,22 +75,31 @@ fi
 if [ "$WEB_UI_AVAILABLE" = true ]; then
     WEBUI_POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l "service=${ENGINE_LABEL}-webui" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [ -z "$WEBUI_POD_NAME" ]; then
-        echo -e "${YELLOW}WARNUNG: WebUI-Pod wurde nicht gefunden.${NC}"
-        echo -e "Port-Forwarding wird möglicherweise nicht funktionieren."
-        echo -e "Verfügbare Pods im Namespace $NAMESPACE:"
-        kubectl -n "$NAMESPACE" get pods
+        echo -e "${YELLOW}WARNUNG: WebUI-Pod wurde nicht gefunden mit Label service=${ENGINE_LABEL}-webui.${NC}"
+        echo -e "Versuche alternative Label-Strategien..."
+
+        # Versuche mit generischem Service-Label für ältere Deployments
+        WEBUI_POD_NAME=$(kubectl -n "$NAMESPACE" get pod -l "service=tgi-webui" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+        if [ -z "$WEBUI_POD_NAME" ]; then
+            echo -e "${RED}Fehler: WebUI-Pod konnte nicht gefunden werden.${NC}"
+            echo -e "Port-Forwarding wird möglicherweise nicht funktionieren."
+            echo -e "Verfügbare Pods im Namespace $NAMESPACE:"
+            kubectl -n "$NAMESPACE" get pods
+        else
+            echo -e "${GREEN}WebUI-Pod mit fallback-Label gefunden: $WEBUI_POD_NAME${NC}"
+        fi
     else
         WEBUI_POD_STATUS=$(kubectl -n "$NAMESPACE" get pod "$WEBUI_POD_NAME" -o jsonpath='{.status.phase}')
         echo -e "WebUI-Pod: $WEBUI_POD_NAME ($WEBUI_POD_STATUS)"
 
-        # Prüfen, ob der Port 3000 im Container geöffnet ist
-        echo -e "${BLUE}Prüfe, ob der WebUI-Pod auf Port 3000 lauscht...${NC}"
-        if kubectl -n "$NAMESPACE" exec "$WEBUI_POD_NAME" -- netstat -tulpn 2>/dev/null | grep -q ":3000"; then
-            echo -e "${GREEN}Port 3000 ist aktiv im WebUI-Pod.${NC}"
+        # Prüfen, ob der Container gerade startup oder ready ist
+        CONTAINER_READY=$(kubectl -n "$NAMESPACE" get pod "$WEBUI_POD_NAME" -o jsonpath='{.status.containerStatuses[0].ready}')
+        if [ "$CONTAINER_READY" = "true" ]; then
+            echo -e "${GREEN}WebUI-Container ist ready.${NC}"
         else
-            echo -e "${YELLOW}WARNUNG: Konnte Port 3000 nicht im WebUI-Pod überprüfen.${NC}"
-            echo -e "Möglicherweise fehlt netstat im Container oder es gibt ein anderes Problem."
-            echo -e "Überprüfen Sie die Container-Logs mit: kubectl -n $NAMESPACE logs $WEBUI_POD_NAME"
+            echo -e "${YELLOW}WebUI-Container ist noch nicht ready.${NC}"
+            echo -e "Container-Status: $(kubectl -n "$NAMESPACE" get pod "$WEBUI_POD_NAME" -o jsonpath='{.status.containerStatuses[0].state}')"
         fi
     fi
 fi

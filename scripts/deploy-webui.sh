@@ -30,7 +30,7 @@ LLM_SERVICE_LABEL=""
 
 case "$ENGINE_TYPE" in
     "tgi")
-        LLM_SERVICE_NAME="${TGI_SERVICE_NAME:-inf-service}"
+        LLM_SERVICE_NAME="${TGI_SERVICE_NAME:-tgi-service}"
         LLM_SERVICE_LABEL="app=llm-server"
         ENGINE_LABEL="tgi"
         echo -e "${BLUE}Engine: Text Generation Inference (TGI)${NC}"
@@ -104,7 +104,7 @@ spec:
             - name: DEBUG
               value: "true"
           ports:
-            - containerPort: 3000
+            - containerPort: 8080
               protocol: TCP
           resources:
             limits:
@@ -137,7 +137,7 @@ spec:
     - name: http
       port: 3000
       protocol: TCP
-      targetPort: 3000
+      targetPort: 8080
   selector:
     service: ${ENGINE_LABEL}-webui
   type: ClusterIP
